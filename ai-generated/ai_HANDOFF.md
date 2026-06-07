@@ -10,7 +10,8 @@ This section supersedes any older "not pushed yet" / "gain pending" notes below.
 
 - GitHub repo is created and pushed: `https://github.com/shkentee/mozzy` (public).
 - Current branch: `main`, tracking `origin/main`.
-- Latest pushed commit at handoff update: `3318d1c` (`Verify mojizo firmware and gain controls`).
+- Latest pushed commit at handoff update before OMI gain work: `3318d1c` (`Verify mojizo firmware and gain controls`).
+- OMI-compatible gain work was added later in commit `de4c4f0` (`Add OMI-compatible mic gain service`) and verified on hardware.
 - GitHub Actions after push:
   - `mobile`: success, APK artifacts `mozzy-debug-<sha>` and `mozzy-release-<sha>`.
   - `firmware`: success, artifact `mozzy-firmware-xiao-ble-<sha>` with `firmware.uf2`.
@@ -21,17 +22,17 @@ This section supersedes any older "not pushed yet" / "gain pending" notes below.
   - `tools/ble_rec_control.py off --mac FF:94:C9:1A:C9:B3`: `Before: on`, `After: off`.
   - Later `status`: `Before: off`, `After: off`.
   - mojio UI showed `SDに録音 / オフ — 一時停止`.
-- Gain is now physically verified on fresh firmware:
-  - `tools/ble_gain_control.py status`: Q4 `16`, level `3`, `1.00x`.
-  - `tools/ble_gain_control.py level 5`: Q4 changed to `32`, `2.00x`.
-  - Restored with `level 3`: Q4 `16`, `1.00x`.
+- Gain is now physically verified on fresh firmware, including the OMI-compatible endpoint:
+  - `tools/ble_gain_control.py status`: `omi_level=3`, Q4 `16`, `1.00x`.
+  - `tools/ble_gain_control.py level 5`: OMI level changed to `5`, Q4 `32`, `2.00x`.
+  - Restored with `level 3`: `omi_level=3`, Q4 `16`, `1.00x`.
   - mojio UI showed `マイクゲイン 1.0x`.
 - Storage pull is re-verified on fresh firmware:
   - `tools/mobile_app.py ls --mac FF:94:C9:1A:C9:B3`: listed 106 SD files.
   - `tools/mobile_app.py pull 1780826727.opus_sd --mac FF:94:C9:1A:C9:B3 --out artifacts\verify\1780826727_after_flash.opus_sd`: downloaded 127,836 bytes, decoded 2,976 frames, 0 errors, 29.76 seconds.
 - PC tools were updated:
   - `ble_rec_control.py`: read/write SD recording control.
-  - `ble_gain_control.py`: read/write Q4 gain.
+  - `ble_gain_control.py`: read/write OMI-compatible gain first, with Q4 diagnostic fallback.
   - `ble_connect.py`, `mobile_app.py`: MAC mode now scans first and passes the BLEDevice object to avoid Windows Bleak address lookup failures.
   - `wr_storage_client.py`: current windowed FETCH command plus legacy fallback.
 - Local generated artifacts are ignored: `artifacts/`, app build output, `.dart_tool`.
@@ -48,7 +49,7 @@ Baseline used:
 
 Then today's app-side changes from the dirty `wearable-recorder` tree were copied into `mozzy`, excluding wrong/new firmware experiments and screenshots.
 
-Important: the repo has not yet been committed or pushed. Do not delete `C:\Users\knsol\projects\voice-recorder` until commit/push and requested verification are genuinely complete.
+Historical note: this was originally written before the first commit/push. The repo has since been committed and pushed to `https://github.com/shkentee/mozzy`; use the latest update section above as the source of truth.
 
 ## Files/Areas Already Migrated
 

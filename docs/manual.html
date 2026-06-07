@@ -312,7 +312,7 @@
         </tbody>
       </table>
       <div class="warning callout">
-        mojizoファームはOMI互換の <code>19b10010</code> / <code>19b10012</code> でゲイン0..8を公開します。診断用Q4サービスでは、2026-06-07 JSTにQ4=16（1.00x）→Q4=32（2.00x）→Q4=16の読み書きを確認済みです。
+        mojizoファームはOMI互換の <code>19b10010</code> / <code>19b10012</code> でゲイン0..8を公開します。2026-06-07 JSTに、OMI互換特性でレベル3（1.00x）→レベル5（2.00x）→レベル3の読み書きを実機確認済みです。
       </div>
     </section>
 
@@ -358,7 +358,7 @@
         <li>アプリ側の旧ファーム吸出し互換を追加し、0バイトで同期完了扱いにならないよう修正済みです。</li>
         <li>mojio上で0.2MBの吸出し完了、未アップロードなし、アップロード済みIDの記録を確認済みです。</li>
         <li>このCodexセッションのGoogle Driveコネクタでは対象フォルダが空に見えました。mojioにログインしているGoogleアカウントと、確認に使うDriveアカウントが一致しているか確認してください。</li>
-        <li>ゲインの実機操作は、GitHub Actions産の新UF2を書き込み後、1.00x→2.00x→1.00xの読み書きで確認済みです。</li>
+        <li>ゲインの実機操作は、GitHub Actions産の新UF2を書き込み後、OMI互換特性で1.00x→2.00x→1.00xの読み書き確認済みです。</li>
         <li>GitHub Actionsの <code>mobile</code>、<code>firmware</code>、<code>tools</code> はpush後に成功を確認済みです。スマホからも同じActions画面で手動実行できます。</li>
       </ul>
       <p>最終更新: 2026-06-07 JST</p>

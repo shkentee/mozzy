@@ -31,7 +31,7 @@ Verification on 2026-06-07 JST:
 - GitHub Actions builds were verified after push: `mobile`, `firmware`, and `tools` completed successfully.
 - The GitHub Actions firmware artifact was flashed to mojizo. BLE advertising shows `mojizo`, mojio reconnects, the app shows mic gain `1.0x`, and SD recording is OFF.
 - Mic gain uses the OMI-compatible settings service (`19b10010` / `19b10012`) with 0..8 levels; the Q4 service (`19b10007`) is kept as a diagnostic endpoint.
-- Mic gain was physically verified on the fresh mojizo firmware via the Q4 endpoint: Q4 gain read `16` (`1.00x`), changed to `32` (`2.00x`), then restored to `16` (`1.00x`). The next firmware build exposes the OMI-compatible endpoint directly.
+- Mic gain was physically verified on the fresh mojizo firmware via the OMI-compatible endpoint: level `3` (`1.00x`) changed to level `5` (`2.00x`), then restored to level `3` (`1.00x`). The app also showed `マイクゲイン 1.0x`.
 - New-firmware SD pull was re-verified after flashing: `1780826727.opus_sd` downloaded as 127,836 bytes and decoded to a 29.76 s WAV with 0 errors.
 
 ## Build From A Phone
