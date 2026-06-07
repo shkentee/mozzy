@@ -1,5 +1,6 @@
 #include "wr_audio.h"
 
+#include <hal/nrf_pdm.h>
 #include <string.h>
 #include <zephyr/audio/dmic.h>
 #include <zephyr/device.h>
@@ -7,6 +8,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/reboot.h>
+#include <zephyr/sys/util.h>
 
 #include "wr_ble_audio.h"
 #include "wr_codec.h"
@@ -46,44 +48,53 @@ static atomic_t pcm_dropped;
 static atomic_t encode_errors;
 static bool started;
 
-/* Software capture gain (Q4 fixed point: 16 = 1.0x). Adjustable from the phone
- * over BLE so the quiet PDM mic can be boosted without a reflash. */
-static atomic_t pcm_gain_q4 = ATOMIC_INIT(16);
+/* OMI's saved default is level 6 (+20dB), which maps to 0x3C. */
+static atomic_t pdm_gain = ATOMIC_INIT(0x3C);
 
-void wr_audio_set_gain_q4(uint8_t gain_q4)
+static void apply_pdm_gain(uint8_t gain)
 {
-	/* clamp to [0.25x, ~16x]; 0 would mute via rounding, so floor at 4. */
-	int g = gain_q4 < 4 ? 4 : gain_q4;
-
-	atomic_set(&pcm_gain_q4, g);
-	LOG_INF("capture gain set to %d/16 (~%d.%02dx)", g, g / 16,
-		((g % 16) * 100) / 16);
+#if defined(NRF_PDM0_S)
+	nrf_pdm_gain_set(NRF_PDM0_S, (nrf_pdm_gain_t)gain,
+			 (nrf_pdm_gain_t)gain);
+#elif defined(NRF_PDM0_NS)
+	nrf_pdm_gain_set(NRF_PDM0_NS, (nrf_pdm_gain_t)gain,
+			 (nrf_pdm_gain_t)gain);
+#elif defined(NRF_PDM0)
+	nrf_pdm_gain_set(NRF_PDM0, (nrf_pdm_gain_t)gain,
+			 (nrf_pdm_gain_t)gain);
+#elif defined(NRF_PDM)
+	nrf_pdm_gain_set(NRF_PDM, (nrf_pdm_gain_t)gain,
+			 (nrf_pdm_gain_t)gain);
+#else
+	ARG_UNUSED(gain);
+#endif
 }
 
-uint8_t wr_audio_get_gain_q4(void)
+void wr_audio_set_mic_gain(uint8_t gain)
 {
-	return (uint8_t)atomic_get(&pcm_gain_q4);
+	const uint8_t g =
+		gain > NRF_PDM_GAIN_MAXIMUM ? NRF_PDM_GAIN_MAXIMUM : gain;
+
+	atomic_set(&pdm_gain, g);
+	apply_pdm_gain(g);
+	LOG_INF("PDM mic gain set to 0x%02x (%u)", g, g);
 }
 
-/* Copy one PCM frame applying the current gain (with clipping). */
+uint8_t wr_audio_get_mic_gain(void)
+{
+	return (uint8_t)atomic_get(&pdm_gain);
+}
+
+/* Copy one PCM frame. Level 0 mutes in software too, so mute is deterministic. */
 static void copy_with_gain(int16_t *dst, const int16_t *src)
 {
-	const int g = atomic_get(&pcm_gain_q4);
+	const int g = atomic_get(&pdm_gain);
 
-	if (g == 16) {
-		memcpy(dst, src, PCM_FRAME_BYTES);
+	if (g == 0) {
+		memset(dst, 0, PCM_FRAME_BYTES);
 		return;
 	}
-	for (int i = 0; i < WR_CODEC_FRAME_SAMPLES; i++) {
-		int32_t v = ((int32_t)src[i] * g) >> 4;
-
-		if (v > 32767) {
-			v = 32767;
-		} else if (v < -32768) {
-			v = -32768;
-		}
-		dst[i] = (int16_t)v;
-	}
+	memcpy(dst, src, PCM_FRAME_BYTES);
 }
 
 static void packet_ready(const uint8_t *packet, size_t len, void *user_data)
@@ -187,6 +198,7 @@ static void capture_entry(void *arg1, void *arg2, void *arg3)
 		LOG_ERR("dmic_configure failed: %d", ret);
 		return;
 	}
+	wr_audio_set_mic_gain(wr_audio_get_mic_gain());
 
 	ret = dmic_trigger(dmic_dev, DMIC_TRIGGER_START);
 	if (ret < 0) {

@@ -5,9 +5,9 @@
 
 int wr_audio_start(void);
 
-/* Software capture gain, Q4 fixed point (16 = 1.0x). Adjustable from the phone
- * over BLE; clamped to a sane range. Applied to PCM before Opus encoding. */
-void wr_audio_set_gain_q4(uint8_t gain_q4);
-uint8_t wr_audio_get_gain_q4(void);
+/* PDM microphone gain byte. OMI maps level 0..8 to Nordic PDM gain values
+ * 0x00..0x50 and writes them to both mic channels. */
+void wr_audio_set_mic_gain(uint8_t gain);
+uint8_t wr_audio_get_mic_gain(void);
 
 #endif /* WR_AUDIO_H */

@@ -1,18 +1,20 @@
 /*
  * Mic gain control GATT characteristics (D10).
  *
- * Lets the phone adjust the capture gain over BLE (the PDM mic is quiet, so a
- * software boost helps) without reflashing.
+ * Lets the phone adjust the capture gain over BLE. The app-facing endpoint
+ * follows the current OMI settings service and maps levels to Nordic PDM gain.
  *
  * OMI-compatible app-facing endpoint:
  *   Service UUID:        19B10010-E8F2-537E-4F6C-D104768A1214
  *   Characteristic UUID: 19B10012-E8F2-537E-4F6C-D104768A1214
- *   READ/WRITE 1 byte: gain level 0..8.
+ *   READ/WRITE 1 byte: gain level 0..8
+ *     0 Mute, 1 -20dB, 2 -10dB, 3 +0dB, 4 +6dB,
+ *     5 +10dB, 6 +20dB, 7 +30dB, 8 +40dB.
  *
  * mojizo diagnostic endpoint:
  *   Service / Characteristic UUID: 19B10007-E8F2-537E-4F6C-D104768A1214
- *   READ  1 byte: current gain, Q4 fixed point (16 = 1.0x, 32 = 2.0x, ...).
- *   WRITE 1 byte: new gain (Q4); clamped to a sane range by the audio layer.
+ *   READ  1 byte: current Nordic PDM gain byte.
+ *   WRITE 1 byte: new Nordic PDM gain byte.
  */
 
 #include <stdint.h>
@@ -41,26 +43,46 @@ static struct bt_uuid_128 omi_settings_svc_uuid =
 static struct bt_uuid_128 omi_mic_gain_char_uuid =
 	BT_UUID_INIT_128(OMI_MIC_GAIN_UUID);
 
-static const uint8_t gain_q4_by_omi_level[] = {
-	4, 8, 12, 16, 24, 32, 48, 64, 96,
+/* Same table as OMI firmware's mic_set_gain(). DevKit2's fixed MIC_GAIN 64
+ * sits between level 6 (0x3C) and level 7 (0x46). */
+#define OMI_MIC_GAIN_DEFAULT_LEVEL 6U
+
+static const uint8_t pdm_gain_by_omi_level[] = {
+	0x00, /* 0: Mute */
+	0x14, /* 1: -20dB */
+	0x1E, /* 2: -10dB */
+	0x28, /* 3: +0dB */
+	0x2E, /* 4: +6dB */
+	0x32, /* 5: +10dB */
+	0x3C, /* 6: +20dB, OMI default */
+	0x46, /* 7: +30dB */
+	0x50, /* 8: +40dB */
 };
 
-static uint8_t omi_level_to_q4(uint8_t level)
+static const char *const gain_label_by_omi_level[] = {
+	"Mute", "-20dB", "-10dB", "+0dB", "+6dB",
+	"+10dB", "+20dB", "+30dB", "+40dB",
+};
+
+static uint8_t current_omi_gain_level = OMI_MIC_GAIN_DEFAULT_LEVEL;
+
+static uint8_t omi_level_to_pdm_gain(uint8_t level)
 {
-	if (level >= ARRAY_SIZE(gain_q4_by_omi_level)) {
-		level = ARRAY_SIZE(gain_q4_by_omi_level) - 1U;
+	if (level >= ARRAY_SIZE(pdm_gain_by_omi_level)) {
+		level = ARRAY_SIZE(pdm_gain_by_omi_level) - 1U;
 	}
-	return gain_q4_by_omi_level[level];
+	return pdm_gain_by_omi_level[level];
 }
 
-static uint8_t q4_to_omi_level(uint8_t gain_q4)
+static uint8_t pdm_gain_to_omi_level(uint8_t gain)
 {
 	uint8_t best = 0;
 	uint8_t best_delta = UINT8_MAX;
 
-	for (uint8_t i = 0; i < ARRAY_SIZE(gain_q4_by_omi_level); i++) {
-		const uint8_t q4 = gain_q4_by_omi_level[i];
-		const uint8_t delta = gain_q4 > q4 ? gain_q4 - q4 : q4 - gain_q4;
+	for (uint8_t i = 0; i < ARRAY_SIZE(pdm_gain_by_omi_level); i++) {
+		const uint8_t pdm_gain = pdm_gain_by_omi_level[i];
+		const uint8_t delta =
+			gain > pdm_gain ? gain - pdm_gain : pdm_gain - gain;
 
 		if (delta < best_delta) {
 			best = i;
@@ -75,7 +97,7 @@ static ssize_t wr_gain_read(struct bt_conn *conn,
 			    const struct bt_gatt_attr *attr, void *buf,
 			    uint16_t len, uint16_t offset)
 {
-	const uint8_t g = wr_audio_get_gain_q4();
+	const uint8_t g = wr_audio_get_mic_gain();
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, &g, sizeof(g));
 }
@@ -93,7 +115,10 @@ static ssize_t wr_gain_write(struct bt_conn *conn,
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 
-	wr_audio_set_gain_q4(((const uint8_t *)buf)[0]);
+	const uint8_t gain = ((const uint8_t *)buf)[0];
+
+	current_omi_gain_level = pdm_gain_to_omi_level(gain);
+	wr_audio_set_mic_gain(gain);
 	return (ssize_t)len;
 }
 
@@ -101,7 +126,7 @@ static ssize_t omi_gain_read(struct bt_conn *conn,
 			     const struct bt_gatt_attr *attr, void *buf,
 			     uint16_t len, uint16_t offset)
 {
-	const uint8_t level = q4_to_omi_level(wr_audio_get_gain_q4());
+	const uint8_t level = current_omi_gain_level;
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, &level,
 				 sizeof(level));
@@ -120,11 +145,17 @@ static ssize_t omi_gain_write(struct bt_conn *conn,
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 
-	const uint8_t level = ((const uint8_t *)buf)[0];
-	const uint8_t gain_q4 = omi_level_to_q4(level);
+	uint8_t level = ((const uint8_t *)buf)[0];
+	if (level >= ARRAY_SIZE(pdm_gain_by_omi_level)) {
+		level = ARRAY_SIZE(pdm_gain_by_omi_level) - 1U;
+	}
+	const uint8_t gain = omi_level_to_pdm_gain(level);
 
-	LOG_INF("OMI mic gain level %u -> q4 %u", level, gain_q4);
-	wr_audio_set_gain_q4(gain_q4);
+	current_omi_gain_level = level;
+	LOG_INF("OMI mic gain level %u (%s) -> pdm 0x%02x",
+		(unsigned int)level, gain_label_by_omi_level[level],
+		(unsigned int)gain);
+	wr_audio_set_mic_gain(gain);
 	return (ssize_t)len;
 }
 

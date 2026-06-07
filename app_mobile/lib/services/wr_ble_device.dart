@@ -12,7 +12,7 @@ import 'wr_packet_sink.dart';
 import 'wr_storage_client.dart';
 import 'wr_uuids.dart';
 
-enum _MicGainProtocol { omiLevel, q4 }
+enum _MicGainProtocol { omiLevel, rawPdmGain }
 
 class _MicGainEndpoint {
   const _MicGainEndpoint(this.characteristic, this.protocol);
@@ -31,7 +31,7 @@ class _MicGainEndpoint {
 class WrBleDevice {
   WrBleDevice(this._device, {WrPacketSink? sink}) : _injectedSink = sink;
 
-  static const List<int> _q4GainByLevel = [4, 8, 12, 16, 24, 32, 48, 64, 96];
+  static const List<int> _pdmGainByLevel = [0, 20, 30, 40, 46, 50, 60, 70, 80];
 
   final BluetoothDevice _device;
   final WrPacketSink? _injectedSink;
@@ -373,11 +373,11 @@ class WrBleDevice {
     await c.write([on ? 1 : 0], withoutResponse: false);
   }
 
-  static int _q4ToLevel(int q4) {
+  static int _rawPdmGainToLevel(int rawGain) {
     var best = 0;
     var bestDelta = 1 << 30;
-    for (var i = 0; i < _q4GainByLevel.length; i++) {
-      final delta = (q4 - _q4GainByLevel[i]).abs();
+    for (var i = 0; i < _pdmGainByLevel.length; i++) {
+      final delta = (rawGain - _pdmGainByLevel[i]).abs();
       if (delta < bestDelta) {
         best = i;
         bestDelta = delta;
@@ -387,7 +387,7 @@ class WrBleDevice {
   }
 
   /// Finds mic-gain characteristic, supporting both Omi level gain and mojizo
-  /// Q4 fixed-point gain. Returns null on firmware that doesn't expose either.
+  /// raw PDM gain. Returns null on firmware that doesn't expose either.
   _MicGainEndpoint? _gainEndpoint() {
     final svcs = _discoveredServices;
     if (svcs == null) return null;
@@ -398,14 +398,15 @@ class WrBleDevice {
           .firstWhere((c) => c.characteristicUuid == Guid(WrUuids.micGainChar));
       return _MicGainEndpoint(c, _MicGainProtocol.omiLevel);
     } catch (_) {
-      // Try mojizo Q4 gain below.
+      // Try mojizo raw PDM gain below.
     }
     try {
-      final svc =
-          svcs.firstWhere((s) => s.serviceUuid == Guid(WrUuids.q4GainService));
+      final svc = svcs.firstWhere(
+        (s) => s.serviceUuid == Guid(WrUuids.rawGainService),
+      );
       final c = svc.characteristics
-          .firstWhere((c) => c.characteristicUuid == Guid(WrUuids.q4GainChar));
-      return _MicGainEndpoint(c, _MicGainProtocol.q4);
+          .firstWhere((c) => c.characteristicUuid == Guid(WrUuids.rawGainChar));
+      return _MicGainEndpoint(c, _MicGainProtocol.rawPdmGain);
     } catch (_) {
       return null;
     }
@@ -421,7 +422,7 @@ class WrBleDevice {
       if (v.isEmpty) return null;
       return switch (endpoint.protocol) {
         _MicGainProtocol.omiLevel => v[0].clamp(0, 8),
-        _MicGainProtocol.q4 => _q4ToLevel(v[0]),
+        _MicGainProtocol.rawPdmGain => _rawPdmGainToLevel(v[0]),
       };
     } catch (_) {
       return null;
@@ -436,7 +437,7 @@ class WrBleDevice {
     final g = level.clamp(0, 8);
     final raw = switch (endpoint.protocol) {
       _MicGainProtocol.omiLevel => g,
-      _MicGainProtocol.q4 => _q4GainByLevel[g],
+      _MicGainProtocol.rawPdmGain => _pdmGainByLevel[g],
     };
     await endpoint.characteristic.write([raw], withoutResponse: false);
   }

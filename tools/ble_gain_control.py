@@ -3,13 +3,13 @@
 mojizo exposes an OMI-compatible gain characteristic:
   service 19b10010..., characteristic 19b10012..., value 0..8
 
-It also keeps a mojizo diagnostic Q4 characteristic:
-  service/characteristic 19b10007..., 16 = 1.0x, 32 = 2.0x
+It also keeps a mojizo diagnostic raw-gain characteristic:
+  service/characteristic 19b10007..., raw Nordic PDM gain byte
 
 Usage:
     python ble_gain_control.py status [--mac FF:94:C9:1A:C9:B3]
     python ble_gain_control.py level 5 [--mac FF:94:C9:1A:C9:B3]
-    python ble_gain_control.py q4 32  [--mac FF:94:C9:1A:C9:B3]
+    python ble_gain_control.py raw 60  [--mac FF:94:C9:1A:C9:B3]
 """
 from __future__ import annotations
 
@@ -25,9 +25,20 @@ except ImportError:
 
 
 OMI_GAIN_CHAR = "19b10012-e8f2-537e-4f6c-d104768a1214"
-Q4_GAIN_CHAR = "19b10007-e8f2-537e-4f6c-d104768a1214"
+RAW_GAIN_CHAR = "19b10007-e8f2-537e-4f6c-d104768a1214"
 DEFAULT_NAME = "mojizo"
-Q4_BY_LEVEL = [4, 8, 12, 16, 24, 32, 48, 64, 96]
+GAIN_LABELS = [
+    "Mute",
+    "-20dB",
+    "-10dB",
+    "+0dB",
+    "+6dB",
+    "+10dB",
+    "+20dB",
+    "+30dB",
+    "+40dB",
+]
+RAW_GAIN_BY_LEVEL = [0, 20, 30, 40, 46, 50, 60, 70, 80]
 
 
 async def find_device(name_hint: str = DEFAULT_NAME, timeout: int = 8):
@@ -57,13 +68,16 @@ async def resolve_target(mac: str | None):
     return device, device.address, device.name or "(unnamed)"
 
 
-def level_from_q4(q4: int) -> int:
-    return min(range(len(Q4_BY_LEVEL)), key=lambda i: abs(Q4_BY_LEVEL[i] - q4))
+def level_from_raw_gain(raw_gain: int) -> int:
+    return min(
+        range(len(RAW_GAIN_BY_LEVEL)),
+        key=lambda i: abs(RAW_GAIN_BY_LEVEL[i] - raw_gain),
+    )
 
 
-def describe(q4: int) -> str:
-    level = level_from_q4(q4)
-    return f"q4={q4} level={level} ({q4 / 16:.2f}x)"
+def describe_raw_gain(raw_gain: int) -> str:
+    level = level_from_raw_gain(raw_gain)
+    return f"raw_gain=0x{raw_gain:02x}({raw_gain}) level={level} {GAIN_LABELS[level]}"
 
 
 def find_char(client: BleakClient, uuid: str):
@@ -76,8 +90,9 @@ def find_char(client: BleakClient, uuid: str):
 
 
 def describe_omi(level: int) -> str:
-    level = max(0, min(level, len(Q4_BY_LEVEL) - 1))
-    return f"omi_level={level} {describe(Q4_BY_LEVEL[level])}"
+    level = max(0, min(level, len(GAIN_LABELS) - 1))
+    raw_gain = RAW_GAIN_BY_LEVEL[level]
+    return f"omi_level={level} {GAIN_LABELS[level]} raw_gain=0x{raw_gain:02x}({raw_gain})"
 
 
 async def read_omi_gain(client: BleakClient) -> int:
@@ -90,13 +105,13 @@ async def read_omi_gain(client: BleakClient) -> int:
     return int(data[0])
 
 
-async def read_q4_gain(client: BleakClient) -> int:
-    ch = find_char(client, Q4_GAIN_CHAR)
+async def read_raw_gain(client: BleakClient) -> int:
+    ch = find_char(client, RAW_GAIN_CHAR)
     if ch is None:
-        raise RuntimeError("Q4 gain characteristic not found")
+        raise RuntimeError("raw gain characteristic not found")
     data = await client.read_gatt_char(ch)
     if not data:
-        raise RuntimeError("empty Q4 gain value")
+        raise RuntimeError("empty raw gain value")
     return int(data[0])
 
 
@@ -104,7 +119,7 @@ async def read_preferred_gain(client: BleakClient) -> tuple[str, int]:
     try:
         return "omi", await read_omi_gain(client)
     except Exception:
-        return "q4", await read_q4_gain(client)
+        return "raw", await read_raw_gain(client)
 
 
 async def main() -> int:
@@ -115,11 +130,15 @@ async def main() -> int:
     sp.add_argument("--mac", help="MAC address (skip scan)")
 
     sp = sub.add_parser("level")
-    sp.add_argument("value", type=int, choices=range(0, len(Q4_BY_LEVEL)))
+    sp.add_argument("value", type=int, choices=range(0, len(RAW_GAIN_BY_LEVEL)))
+    sp.add_argument("--mac", help="MAC address (skip scan)")
+
+    sp = sub.add_parser("raw")
+    sp.add_argument("value", type=int, choices=range(0, 81))
     sp.add_argument("--mac", help="MAC address (skip scan)")
 
     sp = sub.add_parser("q4")
-    sp.add_argument("value", type=int, choices=range(1, 256))
+    sp.add_argument("value", type=int, choices=range(0, 81))
     sp.add_argument("--mac", help="MAC address (skip scan)")
 
     args = parser.parse_args()
@@ -132,24 +151,24 @@ async def main() -> int:
         if protocol == "omi":
             print(f"Before: {describe_omi(before)}")
         else:
-            print(f"Before: {describe(before)}")
+            print(f"Before: {describe_raw_gain(before)}")
 
         if args.command == "level":
             ch = find_char(client, OMI_GAIN_CHAR)
             if ch is not None:
                 await client.write_gatt_char(ch, bytes([args.value]), response=True)
             else:
-                ch = find_char(client, Q4_GAIN_CHAR)
+                ch = find_char(client, RAW_GAIN_CHAR)
                 if ch is None:
                     raise RuntimeError("no writable gain characteristic found")
                 await client.write_gatt_char(
-                    ch, bytes([Q4_BY_LEVEL[args.value]]), response=True
+                    ch, bytes([RAW_GAIN_BY_LEVEL[args.value]]), response=True
                 )
             await asyncio.sleep(0.5)
-        elif args.command == "q4":
-            ch = find_char(client, Q4_GAIN_CHAR)
+        elif args.command in ("raw", "q4"):
+            ch = find_char(client, RAW_GAIN_CHAR)
             if ch is None:
-                raise RuntimeError("Q4 gain characteristic not found")
+                raise RuntimeError("raw gain characteristic not found")
             await client.write_gatt_char(ch, bytes([args.value]), response=True)
             await asyncio.sleep(0.5)
 
@@ -157,7 +176,7 @@ async def main() -> int:
         if protocol == "omi":
             print(f"After: {describe_omi(after)}")
         else:
-            print(f"After: {describe(after)}")
+            print(f"After: {describe_raw_gain(after)}")
 
     return 0
 

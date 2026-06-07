@@ -29,9 +29,9 @@ Verification on 2026-06-07 JST:
 - App-side SD pull and upload queue processing were verified on-device: mojio showed a completed 0.2 MB pull, no pending upload, and local uploaded markers for `1780826727.opus_sd:127836`, `1780829341.opus_sd:253371`, and `1780829401.opus_sd:242651`.
 - Google Drive connector access to folder `1IPNXw8EzMz6u6nGUo5H1xtuwkI4NKayJ` was confirmed, but that connector saw an empty folder. This may be a Google account mismatch with the account signed into mojio. To avoid false "already uploaded" deletes, `uploadIfNew` now verifies the remote Drive file still exists before skipping a queued file.
 - GitHub Actions builds were verified after push: `mobile`, `firmware`, and `tools` completed successfully.
-- The GitHub Actions firmware artifact was flashed to mojizo. BLE advertising shows `mojizo`, mojio reconnects, the app shows mic gain `1.0x`, and SD recording is OFF.
-- Mic gain uses the OMI-compatible settings service (`19b10010` / `19b10012`) with 0..8 levels; the Q4 service (`19b10007`) is kept as a diagnostic endpoint.
-- Mic gain was physically verified on the fresh mojizo firmware via the OMI-compatible endpoint: level `3` (`1.00x`) changed to level `5` (`2.00x`), then restored to level `3` (`1.00x`). The app also showed `マイクゲイン 1.0x`.
+- The GitHub Actions firmware artifact was flashed to mojizo. BLE advertising shows `mojizo`, mojio reconnects, and SD recording is OFF.
+- Mic gain uses the OMI-compatible settings service (`19b10010` / `19b10012`) with 0..8 levels and OMI dB labels: `Mute`, `-20dB`, `-10dB`, `+0dB`, `+6dB`, `+10dB`, `+20dB`, `+30dB`, `+40dB`.
+- mojizo maps those levels to the same Nordic PDM gain bytes as current OMI firmware: `0x00`, `0x14`, `0x1E`, `0x28`, `0x2E`, `0x32`, `0x3C`, `0x46`, `0x50`. Source notes are kept in `web-source/web_omi_gain_reference_20260607.md`.
 - New-firmware SD pull was re-verified after flashing: `1780826727.opus_sd` downloaded as 127,836 bytes and decoded to a 29.76 s WAV with 0 errors.
 
 ## Build From A Phone
@@ -84,7 +84,7 @@ When the phone UI cannot be used, the PC can read or change the device recording
 python tools\ble_rec_control.py status --mac FF:94:C9:1A:C9:B3
 python tools\ble_rec_control.py off --mac FF:94:C9:1A:C9:B3
 python tools\ble_gain_control.py status --mac FF:94:C9:1A:C9:B3
-python tools\ble_gain_control.py level 3 --mac FF:94:C9:1A:C9:B3
+python tools\ble_gain_control.py level 6 --mac FF:94:C9:1A:C9:B3
 ```
 
 ## Repository Notes

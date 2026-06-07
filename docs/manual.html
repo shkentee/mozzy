@@ -300,19 +300,19 @@
 
     <section>
       <h2>ゲイン調整</h2>
-      <p>対応ファームウェアでは、mojioからマイク入力ゲインを変更できます。表示は <code>0.25x</code> から <code>6.0x</code> までの段階式です。</p>
+      <p>対応ファームウェアでは、mojioからマイク入力ゲインを変更できます。表示はOMI互換のdB表記で、<code>Mute</code>、<code>-20dB</code>、<code>-10dB</code>、<code>+0dB</code>、<code>+6dB</code>、<code>+10dB</code>、<code>+20dB</code>、<code>+30dB</code>、<code>+40dB</code> の9段階です。</p>
       <table>
         <thead>
           <tr><th>状況</th><th>動作</th></tr>
         </thead>
         <tbody>
-          <tr><td>新しいmojizoファーム</td><td>OMI互換の設定サービスで0から8のゲイン段階を公開し、mojioにゲイン操作を表示します。</td></tr>
-          <tr><td>診断用Q4サービス</td><td>開発・検証用にQ4形式のゲイン特性も残します。</td></tr>
+          <tr><td>新しいmojizoファーム</td><td>OMI互換の設定サービスで0から8のゲイン段階を公開し、OMI公式と同じPDMゲイン値へ変換します。</td></tr>
+          <tr><td>診断用raw gainサービス</td><td>開発・検証用にPDMゲイン値を直接読む特性も残します。</td></tr>
           <tr><td>ゲイン特性がないファーム</td><td>ゲイン操作は表示されません。録音・吸出し・アップロードはそのまま使えます。</td></tr>
         </tbody>
       </table>
       <div class="warning callout">
-        mojizoファームはOMI互換の <code>19b10010</code> / <code>19b10012</code> でゲイン0..8を公開します。2026-06-07 JSTに、OMI互換特性でレベル3（1.00x）→レベル5（2.00x）→レベル3の読み書きを実機確認済みです。
+        mojizoファームはOMI互換の <code>19b10010</code> / <code>19b10012</code> でゲイン0..8を公開します。初期値はOMIと同じレベル6（<code>+20dB</code>）です。高いゲインはノイズやクリップも増えやすいため、録音環境に合わせて調整してください。
       </div>
     </section>
 
@@ -358,7 +358,7 @@
         <li>アプリ側の旧ファーム吸出し互換を追加し、0バイトで同期完了扱いにならないよう修正済みです。</li>
         <li>mojio上で0.2MBの吸出し完了、未アップロードなし、アップロード済みIDの記録を確認済みです。</li>
         <li>このCodexセッションのGoogle Driveコネクタでは対象フォルダが空に見えました。mojioにログインしているGoogleアカウントと、確認に使うDriveアカウントが一致しているか確認してください。</li>
-        <li>ゲインの実機操作は、GitHub Actions産の新UF2を書き込み後、OMI互換特性で1.00x→2.00x→1.00xの読み書き確認済みです。</li>
+        <li>ゲインはOMI互換のdB表記とPDMゲイン値に合わせて実装しています。実機確認結果はREADMEと引き継ぎファイルに追記します。</li>
         <li>GitHub Actionsの <code>mobile</code>、<code>firmware</code>、<code>tools</code> はpush後に成功を確認済みです。スマホからも同じActions画面で手動実行できます。</li>
       </ul>
       <p>最終更新: 2026-06-07 JST</p>

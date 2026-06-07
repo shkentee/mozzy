@@ -144,6 +144,23 @@ void main() {
     expect(find.textContaining('保存 2.0MB'), findsOneWidget);
   });
 
+  test('mic gain labels match the OMI dB table', () {
+    expect(
+      List.generate(9, micGainLabel),
+      [
+        'Mute',
+        '-20dB',
+        '-10dB',
+        '+0dB',
+        '+6dB',
+        '+10dB',
+        '+20dB',
+        '+30dB',
+        '+40dB',
+      ],
+    );
+  });
+
   testWidgets('shows error status when connect() throws', (tester) async {
     // Override the default stub so the future fails instead of pending.
     when(() => device.connect())

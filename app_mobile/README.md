@@ -29,4 +29,4 @@ The Android scaffold is committed, including the Gradle wrapper. `android/local.
 - The app scans using the standard Battery Service advertisement filter because the current firmware advertises standard services.
 - The app auto-scans on first launch when no saved device ID exists.
 - Google Drive upload defaults to folder ID `1IPNXw8EzMz6u6nGUo5H1xtuwkI4NKayJ`.
-- Mic gain UI is hidden unless the connected firmware exposes a compatible gain characteristic. Fresh mojizo firmware exposes the OMI-compatible 0..8 level service and keeps the Q4 service for diagnostics.
+- Mic gain UI is hidden unless the connected firmware exposes a compatible gain characteristic. Fresh mojizo firmware exposes the OMI-compatible 0..8 level service using dB labels: `Mute`, `-20dB`, `-10dB`, `+0dB`, `+6dB`, `+10dB`, `+20dB`, `+30dB`, `+40dB`.

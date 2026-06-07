@@ -25,14 +25,13 @@ class WrUuids {
   static const String recControlChar = '19b10006-e8f2-537e-4f6c-d104768a1214';
 
   // OMI-compatible settings service: mic gain is READ/WRITE 1 byte, level 0..8.
-  // mojizo maps these levels to the UI gain steps 0.25x..6.0x.
+  // UI labels: Mute, -20dB, -10dB, +0dB, +6dB, +10dB, +20dB, +30dB, +40dB.
   static const String settingsService = '19b10010-e8f2-537e-4f6c-d104768a1214';
   static const String micGainChar = '19b10012-e8f2-537e-4f6c-d104768a1214';
 
-  // mojizo diagnostic gain service: READ/WRITE 1 byte, Q4 fixed point
-  // software gain where 16 = 1.0x. Service UUID doubles as characteristic.
-  static const String q4GainService = '19b10007-e8f2-537e-4f6c-d104768a1214';
-  static const String q4GainChar = '19b10007-e8f2-537e-4f6c-d104768a1214';
+  // mojizo diagnostic gain service: READ/WRITE 1 byte raw Nordic PDM gain.
+  static const String rawGainService = '19b10007-e8f2-537e-4f6c-d104768a1214';
+  static const String rawGainChar = '19b10007-e8f2-537e-4f6c-d104768a1214';
 
   // Storage data stream service (chunk fetch).
   static const String storageService = '30295780-4301-eabd-2904-2849adfeae43';

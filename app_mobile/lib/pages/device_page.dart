@@ -17,15 +17,15 @@ import 'transcripts_page.dart';
 /// SharedPreferences key used to persist the last-connected device address.
 const _kLastDeviceId = 'wr_last_device_id';
 const _micGainLabels = [
-  '0.25x',
-  '0.5x',
-  '0.75x',
-  '1.0x',
-  '1.5x',
-  '2.0x',
-  '3.0x',
-  '4.0x',
-  '6.0x',
+  'Mute',
+  '-20dB',
+  '-10dB',
+  '+0dB',
+  '+6dB',
+  '+10dB',
+  '+20dB',
+  '+30dB',
+  '+40dB',
 ];
 
 class DevicePage extends StatefulWidget {
@@ -597,7 +597,7 @@ class _DevicePageState extends State<DevicePage> {
                       const Text('マイクゲイン',
                           style: TextStyle(fontWeight: FontWeight.w600)),
                       const Spacer(),
-                      Text(_micGainLabel(_micGainLevel!),
+                      Text(micGainLabel(_micGainLevel!),
                           style: Theme.of(context).textTheme.titleMedium),
                     ],
                   ),
@@ -614,7 +614,7 @@ class _DevicePageState extends State<DevicePage> {
                     max: 8,
                     divisions: 8,
                     value: _micGainLevel!.clamp(0, 8).toDouble(),
-                    label: _micGainLabel(_micGainLevel!),
+                    label: micGainLabel(_micGainLevel!),
                     onChanged: (v) => setState(() => _micGainLevel = v.round()),
                     onChangeEnd: (v) async {
                       final g = v.round();
@@ -668,7 +668,7 @@ class _DevicePageState extends State<DevicePage> {
   }
 }
 
-String _micGainLabel(int level) {
+String micGainLabel(int level) {
   final i = level.clamp(0, _micGainLabels.length - 1);
   return _micGainLabels[i];
 }
