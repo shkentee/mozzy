@@ -12,7 +12,7 @@ This section supersedes any older "not pushed yet" / "gain pending" notes below.
 
 This subsection is the newest source of truth for mic gain.
 
-- Latest pushed commit before the DevKit2 fixed-64 correction: `0889253` (`Document OMI gain verification status`).
+- Latest pushed commit: `96ab55b` (`Align mic gain default with OMI DevKit2`).
 - The user corrected the OMI-compatible display table to:
   - `0 Mute`
   - `1 -20dB`
@@ -38,12 +38,12 @@ This subsection is the newest source of truth for mic gain.
   - `python -m compileall -q tools`
   - `flutter analyze`
   - `flutter test`
-- GitHub Actions for commit `0181e7f`:
-  - `tools`: success, run `27092520799`
-  - `firmware`: success, run `27092520804`
-  - `mobile`: success, run `27092520803`
+- GitHub Actions for commit `96ab55b`:
+  - `tools`: success, run `27093151284`
+  - `firmware`: success, run `27093151287`
+  - `mobile`: success, run `27093151299`
 - Firmware artifact was downloaded to:
-  - `artifacts/firmware/27092520804/mozzy-firmware-xiao-ble-0181e7fe6888ba6ed95e63ce1c86fdef9bf648b6/firmware.uf2`
+  - `artifacts/firmware/27093151287/mozzy-firmware-xiao-ble-96ab55b4c65e636f87c7321007153c1d1e50d23a/firmware.uf2`
 - Flashing that artifact did not complete because the PC currently sees no mojizo COM port and no `XIAO-SENSE` drive:
   - `flash.ps1` reported: `no COM port and no XIAO-SENSE drive`
   - `Get-CimInstance Win32_SerialPort` returned no serial ports
@@ -58,7 +58,7 @@ This subsection is the newest source of truth for mic gain.
 - Next physical step: make mojizo visible to the PC over USB, or double-tap reset so the `XIAO-SENSE` UF2 drive appears, then run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\flash.ps1 artifacts\firmware\27092520804\mozzy-firmware-xiao-ble-0181e7fe6888ba6ed95e63ce1c86fdef9bf648b6\firmware.uf2
+powershell -ExecutionPolicy Bypass -File .\flash.ps1 artifacts\firmware\27093151287\mozzy-firmware-xiao-ble-96ab55b4c65e636f87c7321007153c1d1e50d23a\firmware.uf2
 ```
 
 - After flashing, verify and restore with:
