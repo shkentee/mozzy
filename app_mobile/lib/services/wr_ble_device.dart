@@ -31,7 +31,7 @@ class _MicGainEndpoint {
 class WrBleDevice {
   WrBleDevice(this._device, {WrPacketSink? sink}) : _injectedSink = sink;
 
-  static const List<int> _pdmGainByLevel = [0, 20, 30, 40, 46, 50, 60, 70, 80];
+  static const List<int> _pdmGainByLevel = [0, 20, 30, 40, 46, 50, 64, 70, 80];
 
   final BluetoothDevice _device;
   final WrPacketSink? _injectedSink;

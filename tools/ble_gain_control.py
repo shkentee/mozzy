@@ -9,7 +9,7 @@ It also keeps a mojizo diagnostic raw-gain characteristic:
 Usage:
     python ble_gain_control.py status [--mac FF:94:C9:1A:C9:B3]
     python ble_gain_control.py level 5 [--mac FF:94:C9:1A:C9:B3]
-    python ble_gain_control.py raw 60  [--mac FF:94:C9:1A:C9:B3]
+    python ble_gain_control.py raw 64  [--mac FF:94:C9:1A:C9:B3]
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ GAIN_LABELS = [
     "+30dB",
     "+40dB",
 ]
-RAW_GAIN_BY_LEVEL = [0, 20, 30, 40, 46, 50, 60, 70, 80]
+RAW_GAIN_BY_LEVEL = [0, 20, 30, 40, 46, 50, 64, 70, 80]
 
 
 async def find_device(name_hint: str = DEFAULT_NAME, timeout: int = 8):

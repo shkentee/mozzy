@@ -8,11 +8,11 @@ Workspace: `C:\Users\knsol\projects\mozzy`
 
 This section supersedes any older "not pushed yet" / "gain pending" notes below.
 
-### OMI DevKit2 / Current OMI Mic Gain Correction
+### OMI DevKit2 Mic Gain Correction
 
 This subsection is the newest source of truth for mic gain.
 
-- Latest pushed commit: `0181e7f` (`Align mic gain with OMI levels`).
+- Latest pushed commit before the DevKit2 fixed-64 correction: `0889253` (`Document OMI gain verification status`).
 - The user corrected the OMI-compatible display table to:
   - `0 Mute`
   - `1 -20dB`
@@ -29,8 +29,9 @@ This subsection is the newest source of truth for mic gain.
 - Current OMI firmware maps level 0..8 to Nordic PDM gain bytes:
   - `0x00`, `0x14`, `0x1E`, `0x28`, `0x2E`, `0x32`, `0x3C`, `0x46`, `0x50`
   - default level is `6` (`+20dB`, `0x3C`)
-  - DevKit2 fixed `64` (`0x40`) sits between levels 6 and 7.
-- mojizo firmware now uses the same level table and writes the raw Nordic PDM gain via `nrf_pdm_gain_set()`.
+  - DevKit2 fixed `64` (`0x40`) sits between current OMI levels 6 and 7.
+- Because the user said to focus on DevKit2, mojizo uses the OMI dB labels/UUID shape but maps level 6 (`+20dB`) to DevKit2's fixed `0x40` (`64`) instead of current OMI's `0x3C` (`60`).
+- mojizo firmware writes the raw Nordic PDM gain via `nrf_pdm_gain_set()`.
 - mojio app labels are dB-only; old multiplier labels are removed.
 - `tools/ble_gain_control.py` now reports `omi_level=<n> <label> raw_gain=0x..`.
 - Local checks passed after this correction:

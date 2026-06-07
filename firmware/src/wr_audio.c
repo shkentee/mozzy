@@ -48,8 +48,8 @@ static atomic_t pcm_dropped;
 static atomic_t encode_errors;
 static bool started;
 
-/* OMI's saved default is level 6 (+20dB), which maps to 0x3C. */
-static atomic_t pdm_gain = ATOMIC_INIT(0x3C);
+/* OMI DevKit2 uses fixed MIC_GAIN 64 (0x40) for both PDM channels. */
+static atomic_t pdm_gain = ATOMIC_INIT(0x40);
 
 static void apply_pdm_gain(uint8_t gain)
 {

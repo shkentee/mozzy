@@ -43,8 +43,7 @@ static struct bt_uuid_128 omi_settings_svc_uuid =
 static struct bt_uuid_128 omi_mic_gain_char_uuid =
 	BT_UUID_INIT_128(OMI_MIC_GAIN_UUID);
 
-/* Same table as OMI firmware's mic_set_gain(). DevKit2's fixed MIC_GAIN 64
- * sits between level 6 (0x3C) and level 7 (0x46). */
+/* OMI-style 0..8 dB levels, with DevKit2's fixed MIC_GAIN 64 as level 6. */
 #define OMI_MIC_GAIN_DEFAULT_LEVEL 6U
 
 static const uint8_t pdm_gain_by_omi_level[] = {
@@ -54,7 +53,7 @@ static const uint8_t pdm_gain_by_omi_level[] = {
 	0x28, /* 3: +0dB */
 	0x2E, /* 4: +6dB */
 	0x32, /* 5: +10dB */
-	0x3C, /* 6: +20dB, OMI default */
+	0x40, /* 6: +20dB, DevKit2 MIC_GAIN 64 */
 	0x46, /* 7: +30dB */
 	0x50, /* 8: +40dB */
 };
