@@ -4,6 +4,39 @@ Source: ai-generated
 Last updated: 2026-06-07 JST
 Workspace: `C:\Users\knsol\projects\mozzy`
 
+## Latest Update (2026-06-07 JST)
+
+This section supersedes any older "not pushed yet" / "gain pending" notes below.
+
+- GitHub repo is created and pushed: `https://github.com/shkentee/mozzy` (public).
+- Current branch: `main`, tracking `origin/main`.
+- Latest pushed commit at handoff update: `3318d1c` (`Verify mojizo firmware and gain controls`).
+- GitHub Actions after push:
+  - `mobile`: success, APK artifacts `mozzy-debug-<sha>` and `mozzy-release-<sha>`.
+  - `firmware`: success, artifact `mozzy-firmware-xiao-ble-<sha>` with `firmware.uf2`.
+  - `tools`: success after replacing the empty pytest run with Python syntax checks. One older failed `tools` run exists from before the fix.
+- Firmware artifact from run `27090753701` was downloaded under ignored `artifacts/firmware/27090753701/` and flashed successfully with `flash.ps1`.
+- Fresh firmware boots as BLE name `mojizo`; serial log showed `Advertising as 'mojizo'`.
+- SD recording is currently OFF. Verified by:
+  - `tools/ble_rec_control.py off --mac FF:94:C9:1A:C9:B3`: `Before: on`, `After: off`.
+  - Later `status`: `Before: off`, `After: off`.
+  - mojio UI showed `SDに録音 / オフ — 一時停止`.
+- Gain is now physically verified on fresh firmware:
+  - `tools/ble_gain_control.py status`: Q4 `16`, level `3`, `1.00x`.
+  - `tools/ble_gain_control.py level 5`: Q4 changed to `32`, `2.00x`.
+  - Restored with `level 3`: Q4 `16`, `1.00x`.
+  - mojio UI showed `マイクゲイン 1.0x`.
+- Storage pull is re-verified on fresh firmware:
+  - `tools/mobile_app.py ls --mac FF:94:C9:1A:C9:B3`: listed 106 SD files.
+  - `tools/mobile_app.py pull 1780826727.opus_sd --mac FF:94:C9:1A:C9:B3 --out artifacts\verify\1780826727_after_flash.opus_sd`: downloaded 127,836 bytes, decoded 2,976 frames, 0 errors, 29.76 seconds.
+- PC tools were updated:
+  - `ble_rec_control.py`: read/write SD recording control.
+  - `ble_gain_control.py`: read/write Q4 gain.
+  - `ble_connect.py`, `mobile_app.py`: MAC mode now scans first and passes the BLEDevice object to avoid Windows Bleak address lookup failures.
+  - `wr_storage_client.py`: current windowed FETCH command plus legacy fallback.
+- Local generated artifacts are ignored: `artifacts/`, app build output, `.dart_tool`.
+- Remaining caveat: Google Drive remote-file presence was not proven via the Codex Google Drive connector because the connector saw the target folder as empty, likely due account mismatch. App-side queue/upload markers and "未アップロードなし" were verified, and `uploadIfNew` now verifies the remote file exists before skipping.
+
 ## Current State
 
 `mozzy` was created as a new local Git repository to consolidate the app and firmware work.
