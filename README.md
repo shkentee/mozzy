@@ -32,7 +32,7 @@ Verification on 2026-06-07 JST:
 - The GitHub Actions firmware artifact was flashed to mojizo. BLE advertising shows `mojizo`, mojio reconnects, and SD recording is OFF.
 - Mic gain uses the OMI-compatible settings service (`19b10010` / `19b10012`) with 0..8 levels and OMI dB labels: `Mute`, `-20dB`, `-10dB`, `+0dB`, `+6dB`, `+10dB`, `+20dB`, `+30dB`, `+40dB`.
 - mojizo maps those levels to OMI-style Nordic PDM gain bytes, with DevKit2's fixed `MIC_GAIN 64` used for level 6 (`+20dB`): `0x00`, `0x14`, `0x1E`, `0x28`, `0x2E`, `0x32`, `0x40`, `0x46`, `0x50`. Source notes are kept in `web-source/web_omi_gain_reference_20260607.md`.
-- Latest DevKit2 `MIC_GAIN 64` alignment (`96ab55b`) is pushed and `mobile`, `firmware`, and `tools` Actions succeeded. The UF2 is downloaded under `artifacts/firmware/27093151287/.../firmware.uf2`; flashing is pending because the PC currently sees only the Android phone over USB, not the mojizo COM port or `XIAO-SENSE` UF2 drive.
+- Latest DevKit2 `MIC_GAIN 64` alignment (`96ab55b`) is pushed and `mobile`, `firmware`, and `tools` Actions succeeded. The UF2 from `artifacts/firmware/27093151287/.../firmware.uf2` was flashed on 2026-06-08 JST via COM8; the board rebooted back on COM8, advertised as `mojizo`, and serial logs confirmed `PDM mic gain set to 0x40 (64)`.
 - New-firmware SD pull was re-verified after flashing: `1780826727.opus_sd` downloaded as 127,836 bytes and decoded to a 29.76 s WAV with 0 errors.
 
 ## Build From A Phone

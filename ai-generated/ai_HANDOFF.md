@@ -44,24 +44,30 @@ This subsection is the newest source of truth for mic gain.
   - `mobile`: success, run `27093151299`
 - Firmware artifact was downloaded to:
   - `artifacts/firmware/27093151287/mozzy-firmware-xiao-ble-96ab55b4c65e636f87c7321007153c1d1e50d23a/firmware.uf2`
-- Flashing that artifact did not complete because the PC currently sees no mojizo COM port and no `XIAO-SENSE` drive:
-  - `flash.ps1` reported: `no COM port and no XIAO-SENSE drive`
-  - `Get-CimInstance Win32_SerialPort` returned no serial ports
-  - present USB device search only showed the Xiaomi phone
-- PC-side BLE status checks also did not connect at that moment:
+- Flashing that artifact succeeded on 2026-06-08 JST:
+  - `flash.ps1` sent `boot` to `COM8`
+  - `XIAO-SENSE` appeared as `I:\`
+  - `firmware.uf2` copied successfully
+  - board rebooted and came back online at `COM8`
+- Post-flash serial log confirmed:
+  - BLE identity `FF:94:C9:1A:C9:B3`
+  - advertising as `mojizo`
+  - `PDM mic gain set to 0x40 (64)`
+  - app/phone-side connection observed immediately after advertising
+- PC-side BLE status checks could not connect after flashing because the board was already connected to another device:
   - `ble_gain_control.py status --mac FF:94:C9:1A:C9:B3` -> `BleakDeviceNotFoundError`
-  - `ble_rec_control.py status --mac FF:94:C9:1A:C9:B3` -> `BleakDeviceNotFoundError`
+  - `ble_gain_control.py status` by name -> `mojizo device not found in scan`
 - APK artifacts were downloaded, but ADB install could not update the currently installed app because package signatures differed:
   - release APK install failed with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`
   - debug APK install also failed with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`
   - do not uninstall automatically unless the user confirms, because it removes app data.
-- Next physical step: make mojizo visible to the PC over USB, or double-tap reset so the `XIAO-SENSE` UF2 drive appears, then run:
+- Re-flash command, if needed:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\flash.ps1 artifacts\firmware\27093151287\mozzy-firmware-xiao-ble-96ab55b4c65e636f87c7321007153c1d1e50d23a\firmware.uf2
 ```
 
-- After flashing, verify and restore with:
+- Optional BLE verify, after disconnecting mojio/phone if PC needs to connect:
 
 ```powershell
 python tools\ble_gain_control.py status --mac FF:94:C9:1A:C9:B3
