@@ -23,6 +23,7 @@ The app and firmware have been consolidated from the previous local repositories
 Verification on 2026-06-07 JST:
 
 - BLE connection and device info read succeeded against device `FF:94:C9:1A:C9:B3`.
+- SD recording control was verified: mojio showed recording ON, then `tools/ble_rec_control.py off` changed the device state from ON to OFF over BLE.
 - SD file listing succeeded, and a sample file `1780826727.opus_sd` was pulled and decoded locally: 127,836 bytes, 29.76 seconds, 0 decode errors.
 - The app now supports both the current mojizo windowed storage fetch protocol and the legacy verification-firmware whole-file fetch protocol.
 - App-side SD pull and upload queue processing were verified on-device: mojio showed a completed 0.2 MB pull, no pending upload, and local uploaded markers for `1780826727.opus_sd:127836`, `1780829341.opus_sd:253371`, and `1780829401.opus_sd:242651`.
@@ -69,6 +70,15 @@ Local firmware builds require a Zephyr/NCS toolchain with `west`, `cmake`, and `
 
 ```powershell
 west build -b xiao_ble/nrf52840/sense -p always firmware
+```
+
+## BLE Helper Tools
+
+When the phone UI cannot be used, the PC can read or change the device recording state directly:
+
+```powershell
+python tools\ble_rec_control.py status --mac FF:94:C9:1A:C9:B3
+python tools\ble_rec_control.py off --mac FF:94:C9:1A:C9:B3
 ```
 
 ## Repository Notes
