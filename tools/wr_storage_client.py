@@ -9,9 +9,11 @@ custom service exposed by `app/src/wr_storage_service.c` to:
 Wire protocol (mirror of wr_storage_service.c):
 
   control writes (storageReadControl):
-    0x00                       -> LIST
-    0x01 + filename (ascii)    -> FETCH
-    0xFF                       -> ABORT
+    0x00                                   -> LIST
+    0x01 + uint32_le offset + uint32_le length + filename
+                                           -> FETCH window (length 0 = to EOF)
+    0x01 + filename (ascii)                -> legacy FETCH fallback
+    0xFF                                   -> ABORT
 
   stream notifies (storageStream):
     0x01 + filename            -> file entry  (during LIST)
@@ -145,6 +147,29 @@ class WrStorageClient:
         timeout: float = 300.0,
         on_progress=None,
     ) -> bytes:
+        cmd = (
+            bytearray([CMD_FETCH])
+            + (0).to_bytes(4, "little")
+            + (0).to_bytes(4, "little")
+            + filename.encode("ascii")
+        )
+        try:
+            return await self._fetch_file_with_command(
+                filename, cmd, timeout=timeout, on_progress=on_progress
+            )
+        except RuntimeError:
+            legacy = bytearray([CMD_FETCH]) + filename.encode("ascii")
+            return await self._fetch_file_with_command(
+                filename, legacy, timeout=timeout, on_progress=on_progress
+            )
+
+    async def _fetch_file_with_command(
+        self,
+        filename: str,
+        cmd: bytearray,
+        timeout: float = 300.0,
+        on_progress=None,
+    ) -> bytes:
         chunks: List[bytes] = []
         total = 0
         expected_size: Optional[int] = None
@@ -188,7 +213,6 @@ class WrStorageClient:
         self._handler = on_pkt
         await self._ensure_subscribed()
 
-        cmd = bytearray([CMD_FETCH]) + filename.encode("ascii")
         await self._client.write_gatt_char(
             self._ctrl_ch, cmd, response=False
         )

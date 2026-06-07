@@ -33,23 +33,31 @@ async def find_device(name_hint: str = "mojizo", timeout: int = 8):
     return None
 
 
-async def main(mac: str | None, hold: int) -> int:
+async def resolve_target(mac: str | None):
     if mac:
-        target_addr = mac
-        target_name = "(by MAC)"
-    else:
-        d = await find_device()
-        if not d:
-            print("mojizo device not found in scan.")
-            return 2
-        target_addr = d.address
-        target_name = d.name
+        print(f"Scanning 8s for address {mac}...")
+        d = await BleakScanner.find_device_by_address(mac, timeout=8)
+        if d is not None:
+            return d, d.address, d.name or "(by MAC)"
+        return mac, mac, "(by MAC)"
+
+    d = await find_device()
+    if not d:
+        return None, None, None
+    return d, d.address, d.name
+
+
+async def main(mac: str | None, hold: int) -> int:
+    target, target_addr, target_name = await resolve_target(mac)
+    if target is None:
+        print("mojizo device not found in scan.")
+        return 2
 
     print(f"\nTarget: {target_addr}  {target_name}\nConnecting...")
 
     t_start = time.monotonic()
     try:
-        async with BleakClient(target_addr, timeout=10) as client:
+        async with BleakClient(target, timeout=10) as client:
             t_conn = time.monotonic() - t_start
             print(f"  connected in {t_conn:.2f}s, MTU={client.mtu_size}")
 

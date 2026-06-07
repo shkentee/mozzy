@@ -312,7 +312,7 @@
         </tbody>
       </table>
       <div class="warning callout">
-        現在手元で確認済みの検証用UF2はゲインサービスを出していません。ゲインを実機で確認するには、GitHub Actionsで新しいmojizoファームを作成し、mojizoへ書き込んでから再接続してください。
+        2026-06-07 JSTにGitHub Actionsで作成したmojizoファームを書き込み、ゲインサービスを実機確認しました。Q4=16（1.00x）を読み取り、Q4=32（2.00x）へ変更後、Q4=16へ戻せることを確認済みです。
       </div>
     </section>
 
@@ -358,7 +358,8 @@
         <li>アプリ側の旧ファーム吸出し互換を追加し、0バイトで同期完了扱いにならないよう修正済みです。</li>
         <li>mojio上で0.2MBの吸出し完了、未アップロードなし、アップロード済みIDの記録を確認済みです。</li>
         <li>このCodexセッションのGoogle Driveコネクタでは対象フォルダが空に見えました。mojioにログインしているGoogleアカウントと、確認に使うDriveアカウントが一致しているか確認してください。</li>
-        <li>ゲインの実機操作は、ゲインサービス入りの新UF2を作成・書き込み後に確認します。</li>
+        <li>ゲインの実機操作は、GitHub Actions産の新UF2を書き込み後、1.00x→2.00x→1.00xの読み書きで確認済みです。</li>
+        <li>GitHub Actionsの <code>mobile</code>、<code>firmware</code>、<code>tools</code> はpush後に成功を確認済みです。スマホからも同じActions画面で手動実行できます。</li>
       </ul>
       <p>最終更新: 2026-06-07 JST</p>
     </section>

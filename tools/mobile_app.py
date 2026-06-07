@@ -87,13 +87,17 @@ async def find_device(name_hint: str = DEFAULT_NAME, timeout: int = 8):
 
 
 async def resolve_target(mac: Optional[str]):
-    """Returns (address, label)."""
+    """Returns (bleak target, address, label)."""
     if mac:
-        return mac, "(by MAC)"
+        print(f"Scanning 8s for address {mac}...")
+        d = await BleakScanner.find_device_by_address(mac, timeout=8)
+        if d is not None:
+            return d, d.address, d.name or "(by MAC)"
+        return mac, mac, "(by MAC)"
     d = await find_device()
     if not d:
         raise RuntimeError("mojizo device not found in scan.")
-    return d.address, d.name or "(unnamed)"
+    return d, d.address, d.name or "(unnamed)"
 
 
 async def safe_read(client: BleakClient, uuid: str) -> Optional[bytes]:
@@ -145,9 +149,9 @@ async def cmd_scan(_args) -> int:
 
 
 async def cmd_info(args) -> int:
-    addr, label = await resolve_target(args.mac)
+    target, addr, label = await resolve_target(args.mac)
     print(f"Target: {addr}  {label}\nConnecting...")
-    async with BleakClient(addr, timeout=10) as client:
+    async with BleakClient(target, timeout=10) as client:
         print(f"  connected, MTU={client.mtu_size}")
 
         bat = await safe_read(client, BATTERY_LEVEL)
@@ -180,9 +184,9 @@ async def cmd_info(args) -> int:
 
 
 async def cmd_ls(args) -> int:
-    addr, label = await resolve_target(args.mac)
+    target, addr, label = await resolve_target(args.mac)
     print(f"Target: {addr}  {label}\nConnecting...")
-    async with BleakClient(addr, timeout=10) as client:
+    async with BleakClient(target, timeout=10) as client:
         print(f"  connected, MTU={client.mtu_size}\n")
         storage = WrStorageClient(client)
         try:
@@ -199,12 +203,12 @@ async def cmd_ls(args) -> int:
 
 
 async def cmd_pull(args) -> int:
-    addr, label = await resolve_target(args.mac)
+    target, addr, label = await resolve_target(args.mac)
     print(f"Target: {addr}  {label}\nConnecting...")
     out_path = Path(args.out) if args.out else Path(args.filename + ".opus_sd")
     wav_path = out_path.with_suffix(".wav")
 
-    async with BleakClient(addr, timeout=10) as client:
+    async with BleakClient(target, timeout=10) as client:
         print(f"  connected, MTU={client.mtu_size}")
         print(f"  fetching '{args.filename}' ...")
         storage = WrStorageClient(client)
@@ -240,7 +244,7 @@ async def cmd_pull(args) -> int:
 
 
 async def cmd_stream(args) -> int:
-    addr, label = await resolve_target(args.mac)
+    target, addr, label = await resolve_target(args.mac)
     print(f"Target: {addr}  {label}\nConnecting...")
     out_path = Path(args.out)
     wav_path = out_path.with_suffix(".wav")
@@ -248,7 +252,7 @@ async def cmd_stream(args) -> int:
     t_start = time.monotonic()
 
     try:
-        async with BleakClient(addr, timeout=10) as client:
+        async with BleakClient(target, timeout=10) as client:
             print(f"  connected, MTU={client.mtu_size}")
             await client.start_notify(AUDIO_CHAR_UUID, collector.callback)
             print(f"  streaming for {args.seconds}s -> {out_path}\n")
@@ -307,7 +311,7 @@ async def cmd_record(args) -> int:
     Use this when the on-device SD path is broken/unreliable but you
     still need continuous recording — the BLE link is the only writer.
     """
-    addr, label = await resolve_target(args.mac)
+    target, addr, label = await resolve_target(args.mac)
     print(f"Target: {addr}  {label}\nConnecting...")
     prefix = Path(args.prefix)
     rotate_seconds = max(60, int(args.rotate_min * 60))
@@ -318,7 +322,7 @@ async def cmd_record(args) -> int:
         return out_path, AudioCollector(out_path)
 
     try:
-        async with BleakClient(addr, timeout=10) as client:
+        async with BleakClient(target, timeout=10) as client:
             print(f"  connected, MTU={client.mtu_size}")
             print(f"  recording -> {prefix}_NNN.opus_sd  (rotate every {rotate_seconds}s)")
             print(f"  Ctrl+C to stop\n")
@@ -447,9 +451,9 @@ async def cmd_omi_info(args) -> int:
     wr_storage path returned ERROR — it's a different code path that
     only needs file_num_array (populated at mount), not fs_opendir.
     """
-    addr, label = await resolve_target(args.mac)
+    target, addr, label = await resolve_target(args.mac)
     print(f"Target: {addr}  {label}\nConnecting...")
-    async with BleakClient(addr, timeout=10) as client:
+    async with BleakClient(target, timeout=10) as client:
         print(f"  connected, MTU={client.mtu_size}\n")
         # Find the omi-original storage read char (props=['notify','read'])
         target_ch = None
@@ -521,12 +525,12 @@ async def cmd_omi_pull(args) -> int:
     READ_COMMAND = 0
     DONE_BYTE = 100
 
-    addr, label = await resolve_target(args.mac)
+    target, addr, label = await resolve_target(args.mac)
     print(f"Target: {addr}  {label}\nConnecting...")
     out_path = Path(args.out) if args.out else Path(f"a{args.file_num:02d}.opus_sd")
     wav_path = out_path.with_suffix(".wav")
 
-    async with BleakClient(addr, timeout=10) as client:
+    async with BleakClient(target, timeout=10) as client:
         print(f"  connected, MTU={client.mtu_size}")
 
         # Find omi-original Storage service write/notify char (30295781)
@@ -653,7 +657,7 @@ async def cmd_diag_poll(args) -> int:
     If [0] grows over time, SD writes are happening (patch 0032 worked).
     If it stays 0 forever, write_to_storage is still not reaching disk.
     """
-    addr, label = await resolve_target(args.mac)
+    target, addr, label = await resolve_target(args.mac)
     print(f"Target: {addr}  {label}")
     print("t_s  array[0]  array[1]")
     t0 = time.monotonic()
@@ -661,7 +665,7 @@ async def cmd_diag_poll(args) -> int:
     while time.monotonic() < deadline:
         elapsed = time.monotonic() - t0
         try:
-            async with BleakClient(addr, timeout=10) as client:
+            async with BleakClient(target, timeout=10) as client:
                 target_ch = None
                 for svc in client.services:
                     if str(svc.uuid).lower() != "30295780-4301-eabd-2904-2849adfeae43":

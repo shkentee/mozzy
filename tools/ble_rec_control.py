@@ -38,11 +38,15 @@ async def find_device(name_hint: str = DEFAULT_NAME, timeout: int = 8):
 
 async def resolve_target(mac: str | None):
     if mac:
-        return mac, "(by MAC)"
+        print(f"Scanning 8s for address {mac}...")
+        device = await BleakScanner.find_device_by_address(mac, timeout=8)
+        if device is not None:
+            return device, device.address, device.name or "(by MAC)"
+        return mac, mac, "(by MAC)"
     device = await find_device()
     if device is None:
         raise RuntimeError("mojizo device not found in scan.")
-    return device.address, device.name or "(unnamed)"
+    return device, device.address, device.name or "(unnamed)"
 
 
 async def read_state(client: BleakClient) -> bool:
@@ -56,10 +60,10 @@ async def main() -> int:
     parser.add_argument("--mac", help="MAC address (skip scan)")
     args = parser.parse_args()
 
-    address, label = await resolve_target(args.mac)
+    target, address, label = await resolve_target(args.mac)
     print(f"Target: {address} {label}")
 
-    async with BleakClient(address, timeout=10) as client:
+    async with BleakClient(target, timeout=10) as client:
         before = await read_state(client)
         print(f"Before: {'on' if before else 'off'}")
 

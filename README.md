@@ -28,7 +28,10 @@ Verification on 2026-06-07 JST:
 - The app now supports both the current mojizo windowed storage fetch protocol and the legacy verification-firmware whole-file fetch protocol.
 - App-side SD pull and upload queue processing were verified on-device: mojio showed a completed 0.2 MB pull, no pending upload, and local uploaded markers for `1780826727.opus_sd:127836`, `1780829341.opus_sd:253371`, and `1780829401.opus_sd:242651`.
 - Google Drive connector access to folder `1IPNXw8EzMz6u6nGUo5H1xtuwkI4NKayJ` was confirmed, but that connector saw an empty folder. This may be a Google account mismatch with the account signed into mojio. To avoid false "already uploaded" deletes, `uploadIfNew` now verifies the remote Drive file still exists before skipping a queued file.
-- Mic gain is code-supported for both the mojizo Q4 gain service and the older Omi level service. The currently flashed verification UF2 did not expose a gain service, so physical gain adjustment is pending until a fresh firmware build is flashed and its BLE services are listed.
+- GitHub Actions builds were verified after push: `mobile`, `firmware`, and `tools` completed successfully.
+- The GitHub Actions firmware artifact was flashed to mojizo. BLE advertising shows `mojizo`, mojio reconnects, the app shows mic gain `1.0x`, and SD recording is OFF.
+- Mic gain was physically verified on the fresh mojizo firmware: Q4 gain read `16` (`1.00x`), changed to `32` (`2.00x`), then restored to `16` (`1.00x`).
+- New-firmware SD pull was re-verified after flashing: `1780826727.opus_sd` downloaded as 127,836 bytes and decoded to a 29.76 s WAV with 0 errors.
 
 ## Build From A Phone
 
@@ -79,6 +82,8 @@ When the phone UI cannot be used, the PC can read or change the device recording
 ```powershell
 python tools\ble_rec_control.py status --mac FF:94:C9:1A:C9:B3
 python tools\ble_rec_control.py off --mac FF:94:C9:1A:C9:B3
+python tools\ble_gain_control.py status --mac FF:94:C9:1A:C9:B3
+python tools\ble_gain_control.py level 3 --mac FF:94:C9:1A:C9:B3
 ```
 
 ## Repository Notes
