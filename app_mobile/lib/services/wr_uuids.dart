@@ -24,13 +24,12 @@ class WrUuids {
       '19b10006-e8f2-537e-4f6c-d104768a1214';
   static const String recControlChar = '19b10006-e8f2-537e-4f6c-d104768a1214';
 
-  // Omi settings service: mic gain is READ/WRITE 1 byte, level 0..8.
-  // Firmware maps levels to PDM gain: mute, -20, -10, 0, +6, +10, +20,
-  // +30, +40 dB.
+  // OMI-compatible settings service: mic gain is READ/WRITE 1 byte, level 0..8.
+  // mojizo maps these levels to the UI gain steps 0.25x..6.0x.
   static const String settingsService = '19b10010-e8f2-537e-4f6c-d104768a1214';
   static const String micGainChar = '19b10012-e8f2-537e-4f6c-d104768a1214';
 
-  // mojizo firmware gain service: READ/WRITE 1 byte, Q4 fixed point
+  // mojizo diagnostic gain service: READ/WRITE 1 byte, Q4 fixed point
   // software gain where 16 = 1.0x. Service UUID doubles as characteristic.
   static const String q4GainService = '19b10007-e8f2-537e-4f6c-d104768a1214';
   static const String q4GainChar = '19b10007-e8f2-537e-4f6c-d104768a1214';

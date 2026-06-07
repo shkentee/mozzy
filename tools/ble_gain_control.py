@@ -1,7 +1,10 @@
 """Read or change mojizo mic gain over BLE.
 
-mojizo exposes mic gain as a Q4 fixed-point byte:
-  16 = 1.0x, 32 = 2.0x, 96 = 6.0x
+mojizo exposes an OMI-compatible gain characteristic:
+  service 19b10010..., characteristic 19b10012..., value 0..8
+
+It also keeps a mojizo diagnostic Q4 characteristic:
+  service/characteristic 19b10007..., 16 = 1.0x, 32 = 2.0x
 
 Usage:
     python ble_gain_control.py status [--mac FF:94:C9:1A:C9:B3]
@@ -21,7 +24,8 @@ except ImportError:
     sys.exit(1)
 
 
-GAIN_CHAR = "19b10007-e8f2-537e-4f6c-d104768a1214"
+OMI_GAIN_CHAR = "19b10012-e8f2-537e-4f6c-d104768a1214"
+Q4_GAIN_CHAR = "19b10007-e8f2-537e-4f6c-d104768a1214"
 DEFAULT_NAME = "mojizo"
 Q4_BY_LEVEL = [4, 8, 12, 16, 24, 32, 48, 64, 96]
 
@@ -62,11 +66,45 @@ def describe(q4: int) -> str:
     return f"q4={q4} level={level} ({q4 / 16:.2f}x)"
 
 
-async def read_gain(client: BleakClient) -> int:
-    data = await client.read_gatt_char(GAIN_CHAR)
+def find_char(client: BleakClient, uuid: str):
+    uuid = uuid.lower()
+    for svc in client.services:
+        for ch in svc.characteristics:
+            if str(ch.uuid).lower() == uuid:
+                return ch
+    return None
+
+
+def describe_omi(level: int) -> str:
+    level = max(0, min(level, len(Q4_BY_LEVEL) - 1))
+    return f"omi_level={level} {describe(Q4_BY_LEVEL[level])}"
+
+
+async def read_omi_gain(client: BleakClient) -> int:
+    ch = find_char(client, OMI_GAIN_CHAR)
+    if ch is None:
+        raise RuntimeError("OMI gain characteristic not found")
+    data = await client.read_gatt_char(ch)
     if not data:
-        raise RuntimeError("empty gain value")
+        raise RuntimeError("empty OMI gain value")
     return int(data[0])
+
+
+async def read_q4_gain(client: BleakClient) -> int:
+    ch = find_char(client, Q4_GAIN_CHAR)
+    if ch is None:
+        raise RuntimeError("Q4 gain characteristic not found")
+    data = await client.read_gatt_char(ch)
+    if not data:
+        raise RuntimeError("empty Q4 gain value")
+    return int(data[0])
+
+
+async def read_preferred_gain(client: BleakClient) -> tuple[str, int]:
+    try:
+        return "omi", await read_omi_gain(client)
+    except Exception:
+        return "q4", await read_q4_gain(client)
 
 
 async def main() -> int:
@@ -90,20 +128,36 @@ async def main() -> int:
     print(f"Target: {address} {label}")
 
     async with BleakClient(target, timeout=10) as client:
-        before = await read_gain(client)
-        print(f"Before: {describe(before)}")
+        protocol, before = await read_preferred_gain(client)
+        if protocol == "omi":
+            print(f"Before: {describe_omi(before)}")
+        else:
+            print(f"Before: {describe(before)}")
 
         if args.command == "level":
-            await client.write_gatt_char(
-                GAIN_CHAR, bytes([Q4_BY_LEVEL[args.value]]), response=True
-            )
+            ch = find_char(client, OMI_GAIN_CHAR)
+            if ch is not None:
+                await client.write_gatt_char(ch, bytes([args.value]), response=True)
+            else:
+                ch = find_char(client, Q4_GAIN_CHAR)
+                if ch is None:
+                    raise RuntimeError("no writable gain characteristic found")
+                await client.write_gatt_char(
+                    ch, bytes([Q4_BY_LEVEL[args.value]]), response=True
+                )
             await asyncio.sleep(0.5)
         elif args.command == "q4":
-            await client.write_gatt_char(GAIN_CHAR, bytes([args.value]), response=True)
+            ch = find_char(client, Q4_GAIN_CHAR)
+            if ch is None:
+                raise RuntimeError("Q4 gain characteristic not found")
+            await client.write_gatt_char(ch, bytes([args.value]), response=True)
             await asyncio.sleep(0.5)
 
-        after = await read_gain(client)
-        print(f"After: {describe(after)}")
+        protocol, after = await read_preferred_gain(client)
+        if protocol == "omi":
+            print(f"After: {describe_omi(after)}")
+        else:
+            print(f"After: {describe(after)}")
 
     return 0
 
