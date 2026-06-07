@@ -1,0 +1,73 @@
+name: mojio
+description: Flutter Android client for the mojizo recorder.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # BLE — chosen per docs/phase6-plan-draft.md §2.1.
+  # flutter_blue_plus is the maintained successor of flutter_blue with
+  # solid Android 13 / iOS 17 support and no native build steps beyond
+  # platform permissions in AndroidManifest.xml / Info.plist.
+  flutter_blue_plus: ^1.32.12
+
+  # Permissions for Android 12+ scan / connect prompts.
+  permission_handler: ^11.3.1
+
+  # App-documents directory for dumping audioCodec packets to disk;
+  # PC-side tooling re-parses the headers offline.
+  path_provider: ^2.1.4
+
+  # Google Drive upload for recorded .opus sessions.
+  google_sign_in: ^6.2.1
+  googleapis: ^12.0.0
+  http: ^1.2.2
+
+  # Android Foreground Service — keeps the BLE connection alive when the app
+  # is in the background. No-op on non-Android platforms (guarded by
+  # Platform.isAndroid in WrForegroundService).
+  flutter_foreground_task: ^8.11.0
+
+  # Persist the last-connected BLE device address for auto-reconnect on startup.
+  shared_preferences: ^2.3.0
+
+  # In-app Opus playback (D8): decode raw Opus frames -> PCM on-device.
+  # opus_flutter bundles prebuilt libopus (.so) for Android; opus_dart is the
+  # Dart API. just_audio plays the decoded PCM (wrapped as a temp WAV).
+  opus_dart: ^3.0.1
+  opus_flutter: ^3.0.3
+  just_audio: ^0.9.42
+  google_fonts: ^6.3.0
+  connectivity_plus: ^6.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+  # Mocking framework for widget tests. Chosen over mockito because it
+  # is null-safety native (no codegen / build_runner step needed) and
+  # plays nicely with abstract Stream getters on our Wr* wrappers.
+  mocktail: ^1.0.4
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/mojio_logo.png
+    - assets/mojio_device.png
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/mojio_logo.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/mojio_logo.png"
+  min_sdk_android: 21

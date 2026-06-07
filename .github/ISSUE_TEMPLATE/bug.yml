@@ -1,0 +1,78 @@
+name: Bug report
+description: Report a defect in firmware, mobile, tools, or CI.
+title: "[bug] <short summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill out as much as you can —
+        environment + a clean repro is what makes a bug fixable.
+
+  - type: input
+    id: firmware_sha
+    attributes:
+      label: Firmware commit SHA
+      description: Output of `git rev-parse --short HEAD` on the firmware build that reproduces.
+      placeholder: e.g. a1b2c3d
+    validations:
+      required: false
+
+  - type: input
+    id: mobile_build
+    attributes:
+      label: Mobile build / version
+      description: Flutter version + app build number, or "n/a" if not mobile-related.
+      placeholder: e.g. Flutter 3.24.3 / build 42
+    validations:
+      required: false
+
+  - type: dropdown
+    id: failing_workflow
+    attributes:
+      label: Failing CI workflow (if any)
+      options:
+        - n/a (local-only bug)
+        - firmware-build
+        - bsim-smoke
+        - bsim-nightly
+        - mobile
+        - tools
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered list. Include exact commands.
+      placeholder: |
+        1. west build -b ...
+        2. Connect from mobile app
+        3. Hit Record
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: Paste the relevant slice (UART / RTT / flutter logs / CI tail). Trim to the minimum useful window.
+      render: shell
+    validations:
+      required: false

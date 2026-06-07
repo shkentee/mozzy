@@ -1,0 +1,31 @@
+From: voice-recorder
+Subject: [PATCH] sd: fix missing break in card_ioctl CTRL_SYNC case
+
+The DISK_IOCTL_CTRL_SYNC case in card_ioctl() falls through to the
+`default:` label because it lacks a `break;`. As a result CTRL_SYNC
+always returns -ENOTSUP even when sdmmc_wait_ready() succeeds.
+
+FatFS f_sync() (called by fs_sync/fs_close) issues disk_ioctl(CTRL_SYNC)
+as its final step; the spurious error is mapped to FR_DISK_ERR -> -EIO,
+so every fs_sync/fs_close returned -5 even though all data writes (which
+do not go through this ioctl) landed correctly.
+
+Symptom on this project: `<err> fs: file close error (-5)` at every
+recorder checkpoint and `selftest: fs_sync returned -5` at boot, while
+recordings still persisted full-length and decoded with 0 errors.
+
+Applies to Zephyr 100befc7 (NCS v2.7.0). Apply from the zephyr tree:
+    git -C <west-workdir>/zephyr apply <repo>/firmware/patches/0001-sd-fix-ctrl-sync-missing-break.patch
+---
+diff --git a/subsys/sd/sd_ops.c b/subsys/sd/sd_ops.c
+index 54f5b1a3..9daa1f1f 100644
+--- a/subsys/sd/sd_ops.c
++++ b/subsys/sd/sd_ops.c
+@@ -794,6 +794,7 @@ int card_ioctl(struct sd_card *card, uint8_t cmd, void *buf)
+ 		 * cache flush is not required here
+ 		 */
+ 		ret = sdmmc_wait_ready(card);
++		break;
+ 	default:
+ 		ret = -ENOTSUP;
+ 	}

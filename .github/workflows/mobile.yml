@@ -1,0 +1,228 @@
+name: mobile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app_mobile/**'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    paths:
+      - 'app_mobile/**'
+      - '.github/workflows/mobile.yml'
+  workflow_dispatch:
+
+jobs:
+  flutter-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # All Flutter commands run from app_mobile/.
+        working-directory: app_mobile
+    steps:
+      - name: Checkout repo (no submodules — Flutter side doesn't need omi)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up Flutter 3.24 (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Show toolchain versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Unit tests (Dart VM, no device required)
+        run: flutter test --reporter expanded
+
+  android-apk:
+    # Also workflow_dispatch-enabled so a phone can start a fresh APK build
+    # through GitHub Mobile and download the generated artifact.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app_mobile
+    steps:
+      - name: Checkout repo (no submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up JDK 17 (required by AGP 8.x used by Flutter 3.24)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter 3.24 (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Show toolchain versions
+        run: |
+          flutter --version
+          dart --version
+          java -version
+
+      - name: Refresh android/ scaffolding
+        # `flutter create` writes missing Android support files such as
+        # local.properties on CI. Existing app code and pubspec are preserved.
+        run: |
+          flutter create \
+            --platforms=android \
+            --org com.example \
+            --project-name app_mobile \
+            .
+          rm -f test/widget_test.dart
+
+      - name: Bump Kotlin Gradle plugin to 1.9.24
+        # Flutter 3.24's `flutter create` pins org.jetbrains.kotlin.android to
+        # 1.7.10, but transitive plugin deps (e.g. annotation-jvm 1.9.1) ship
+        # bytecode with metadata version 1.9.0 — kotlinc 1.7.1 then refuses to
+        # compile :app:compileDebugKotlin with "Module was compiled with an
+        # incompatible version of Kotlin" errors. Bump the pinned version.
+        run: |
+          SETTINGS=android/settings.gradle
+          ROOT_BUILD=android/build.gradle
+          if [ -f "$SETTINGS" ]; then
+            sed -i -E 's/(id "org\.jetbrains\.kotlin\.android" version ")[^"]+(")/\11.9.24\2/' "$SETTINGS"
+            echo '--- android/settings.gradle ---'
+            cat "$SETTINGS"
+          fi
+          if [ -f "$ROOT_BUILD" ]; then
+            sed -i -E "s/(ext\.kotlin_version = ')[^']+(')/\11.9.24\2/" "$ROOT_BUILD"
+            echo '--- android/build.gradle ---'
+            grep -n "kotlin_version\\|kotlin-gradle-plugin" "$ROOT_BUILD"
+          fi
+
+      - name: Inject BLE + Foreground Service entries into AndroidManifest.xml
+        # `flutter create` ships a manifest without BLE, location, or foreground
+        # service declarations. Inject:
+        #   1. Five <uses-permission> elements before <application>
+        #   2. FlutterForegroundTask <service> element inside <application>
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          test -f "$MANIFEST" || { echo "Manifest not found: $MANIFEST"; exit 1; }
+          python3 - "$MANIFEST" <<'PY'
+          import sys, re, pathlib
+          path = pathlib.Path(sys.argv[1])
+          src = path.read_text(encoding='utf-8')
+
+          # --- permissions (injected before <application>) ---
+          perms = [
+              '<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />',
+              '<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />',
+              '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
+              '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+              '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />',
+          ]
+          # Drop any duplicates that might already exist (defensive).
+          for p in perms:
+              src = src.replace('    ' + p + '\n', '')
+              src = src.replace(p + '\n', '')
+          block = '\n'.join('    ' + p for p in perms) + '\n'
+          new_src, n = re.subn(r'(\s*)<application\b', '\n' + block + r'\1<application', src, count=1)
+          if n != 1:
+              print('ERROR: <application> tag not found in manifest', file=sys.stderr)
+              sys.exit(1)
+          src = new_src
+
+          # --- FlutterForegroundTask service (injected inside <application>) ---
+          svc = (
+              '        <service\n'
+              '            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"\n'
+              '            android:foregroundServiceType="connectedDevice"\n'
+              '            android:exported="false" />'
+          )
+          # Drop duplicates.
+          src = src.replace(svc + '\n', '').replace(svc, '')
+          new_src, m = re.subn(r'(\s*)</application>', svc + r'\n\1</application>', src, count=1)
+          if m != 1:
+              print('ERROR: </application> tag not found in manifest', file=sys.stderr)
+              sys.exit(1)
+          src = new_src
+
+          path.write_text(src, encoding='utf-8')
+          print('Injected', len(perms), 'permissions + FlutterForegroundTask service into', path)
+          PY
+          echo '--- AndroidManifest.xml after injection ---'
+          cat "$MANIFEST"
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Patch flutter_blue_plus_android build.gradle for Flutter 3.24 scaffold
+        # flutter_blue_plus ^1.32.12 transitively pulls flutter_blue_plus_android
+        # 7.0.4, whose android/build.gradle does:
+        #
+        #     android { compileSdkVersion = flutter.compileSdkVersion }
+        #
+        # The `flutter` android-extension property is no longer provided by the
+        # scaffolding that `flutter create` generates on Flutter 3.24+, so the
+        # build dies with:
+        #
+        #     Could not get unknown property 'flutter' for extension 'android'
+        #
+        # Hard-pin the literal value (matching Flutter 3.24's default
+        # compileSdk = 34) directly in the cached plugin source. Bumping
+        # flutter_blue_plus to 2.x would also fix this but introduces a
+        # required `license` API parameter that breaks our lib/.
+        run: |
+          PLUGIN_GRADLE="$HOME/.pub-cache/hosted/pub.dev/flutter_blue_plus_android-7.0.4/android/build.gradle"
+          test -f "$PLUGIN_GRADLE" || { echo "Plugin gradle not found at $PLUGIN_GRADLE"; ls -la "$HOME/.pub-cache/hosted/pub.dev/" | grep flutter_blue_plus || true; exit 1; }
+          sed -i 's/compileSdkVersion = flutter\.compileSdkVersion/compileSdkVersion = 34/' "$PLUGIN_GRADLE"
+          echo '--- patched flutter_blue_plus_android/android/build.gradle ---'
+          cat "$PLUGIN_GRADLE"
+
+      - name: Static analysis (after scaffold so generated files are checked too)
+        run: flutter analyze
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Build release APK (unsigned)
+        working-directory: app_mobile
+        # release は debug signing key で署名される。R8 shrink は Kotlin
+        # metadata warnings を出しやすいため、app/build.gradle 側で無効化。
+        run: flutter build apk --release
+
+      - name: Compare APK sizes
+        working-directory: app_mobile
+        run: |
+          DEBUG=$(stat -c %s build/app/outputs/flutter-apk/app-debug.apk)
+          RELEASE=$(stat -c %s build/app/outputs/flutter-apk/app-release.apk)
+          echo "debug:   $((DEBUG / 1024 / 1024)) MB ($DEBUG bytes)"
+          echo "release: $((RELEASE / 1024 / 1024)) MB ($RELEASE bytes)"
+          echo "shrink ratio: $(awk "BEGIN { printf \"%.1f%%\", (1 - $RELEASE/$DEBUG) * 100 }")"
+
+      - name: Show APK size
+        run: ls -lh build/app/outputs/flutter-apk/
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozzy-debug-${{ github.sha }}
+          path: app_mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mozzy-release-${{ github.sha }}
+          path: app_mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

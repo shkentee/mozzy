@@ -1,0 +1,6 @@
+# Default Flutter lint set. Keeps `flutter analyze` honest in CI and
+# matches what `flutter create` would have written if we had let it
+# generate the project scaffolding. (Strict-casts left off — the
+# flutter_blue_plus error stream is typed dynamic and we don't want to
+# fight the upstream API surface from inside our thin wrappers.)
+include: package:flutter_lints/flutter.yaml

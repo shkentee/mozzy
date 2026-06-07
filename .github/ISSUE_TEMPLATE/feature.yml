@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a new capability or enhancement.
+title: "[feature] <short summary>"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user-facing or developer-facing pain does this address? Why now?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Concrete sketch of the solution. APIs, UI, GATT chars, file format — whichever applies.
+    validations:
+      required: true
+
+  - type: input
+    id: spec_ref
+    attributes:
+      label: Related spec section
+      description: e.g. §4.2 BLE GATT services, or "new — needs spec update"
+      placeholder: §N.M
+    validations:
+      required: false
+
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Target Phase
+      options:
+        - Phase 1 (repo)
+        - Phase 2 (CI)
+        - Phase 3 (Twister / bsim)
+        - Phase 4 (firmware MVP)
+        - Phase 5 (HW bring-up / power)
+        - Phase 6 (mobile / product)
+        - backlog / undecided
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Other approaches you weighed and why you rejected them.
+    validations:
+      required: false

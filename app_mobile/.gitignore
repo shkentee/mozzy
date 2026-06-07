@@ -1,0 +1,24 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# Generated non-Android platform scaffolding
+ios/
+linux/
+macos/
+windows/
+web/
+
+# Temporary verification captures
+mozzy_*.png
+mozzy_*.xml

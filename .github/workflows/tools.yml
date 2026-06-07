@@ -1,0 +1,40 @@
+name: tools
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/**'
+      - '.github/workflows/tools.yml'
+  pull_request:
+    paths:
+      - 'tools/**'
+      - '.github/workflows/tools.yml'
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # All commands run from tools/ — the decoder is self-contained.
+        working-directory: tools
+    steps:
+      - name: Checkout repo (no submodules — tools/ is pure Python)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run unit tests
+        run: pytest -v

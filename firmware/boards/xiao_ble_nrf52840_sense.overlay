@@ -1,0 +1,84 @@
+/*
+ * voice-recorder — XIAO BLE Sense board overlay.
+ *
+ * Adds external SPI SD card on spi2:
+ *   D2  (P0.28) -> SCK
+ *   D8  (P1.13) -> CS  (active low, handled via cs-gpios)
+ *   D9  (P1.14) -> MOSI
+ *   D10 (P1.15) -> MISO
+ *   SPI clock 1 MHz (conservative for hand-wired breadboard).
+ *
+ * Console / USB CDC ACM mapping inherited from xiao_ble_common.dtsi.
+ * PTT button is added in a subsequent commit.
+ */
+
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/adc/nrf-adc.h>
+
+/ {
+	msm261d3526hicpm-c-en {
+		regulator-boot-on;
+	};
+};
+
+dmic_dev: &pdm0 {
+	status = "okay";
+};
+
+&spi2 {
+	status = "okay";
+	pinctrl-0 = <&spi2_sd>;
+	pinctrl-1 = <&spi2_sd>;
+	pinctrl-names = "default", "sleep";
+	cs-gpios = <&gpio1 13 GPIO_ACTIVE_LOW>;
+
+	sdhc0: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		spi-max-frequency = <1000000>;
+		power-delay-ms = <500>;
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			status = "okay";
+		};
+	};
+};
+
+&pinctrl {
+	spi2_sd: spi2_sd {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK,  0, 28)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 14)>,
+				<NRF_PSEL(SPIM_MISO, 1, 15)>;
+		};
+	};
+};
+
+/*
+ * Battery voltage sense. XIAO nRF52840 routes the cell through a
+ * ~1/3 divider (1 MOhm : 0.51 MOhm) into AIN7 (P0.31). P0.14
+ * (READ_BAT_ENABLE) must be held LOW to engage the divider — handled in
+ * wr_battery.c. AIN7 / P0.14 are board-internal, no pin conflict.
+ */
+/ {
+	zephyr,user {
+		io-channels = <&adc 7>;
+	};
+};
+
+&adc {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@7 {
+		reg = <7>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
+		zephyr,input-positive = <NRF_SAADC_AIN7>;
+		zephyr,resolution = <12>;
+		zephyr,oversampling = <4>;
+	};
+};

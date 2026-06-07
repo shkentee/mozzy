@@ -1,0 +1,47 @@
+name: Task
+description: Concrete unit of work — refactor, chore, follow-up, or scoped engineering task.
+title: "[task] <short summary>"
+labels: ["task"]
+body:
+  - type: textarea
+    id: scope
+    attributes:
+      label: Work to do
+      description: What needs to happen. Be specific.
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      description: Checklist of what "done" looks like. Tests, docs, CI, spec update, etc.
+      placeholder: |
+        - [ ] Code change in <area>
+        - [ ] Unit test added
+        - [ ] Docs / spec section updated
+        - [ ] CI green on <workflow>
+    validations:
+      required: true
+
+  - type: input
+    id: related_commit
+    attributes:
+      label: Related commit / PR (if any)
+      placeholder: e.g. a1b2c3d or #42
+    validations:
+      required: false
+
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Expected CI workflow to exercise this
+      options:
+        - firmware-build
+        - bsim-smoke
+        - bsim-nightly
+        - mobile
+        - tools
+        - none (docs / config only)
+    validations:
+      required: true

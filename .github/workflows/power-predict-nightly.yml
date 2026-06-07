@@ -1,0 +1,57 @@
+name: power-predict-nightly
+
+# Runs tools/power-predict.py nightly with spec defaults and uploads the
+# JSON output as a 90-day artifact. Once PPK2 measurements start landing
+# in Phase 5 we want a time-series of theoretical predictions to plot
+# alongside the real numbers, so each scheduled run leaves behind one
+# dated artifact for later diff'ing.
+#
+# 03:13 JST = 18:13 UTC. Offset from bsim-nightly (18:17) so the two
+# don't fight for the same runner slot.
+
+on:
+  schedule:
+    - cron: "13 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run predictor with defaults + write JSON
+        run: |
+          python tools/power-predict.py --json > /tmp/predict.json
+          cat /tmp/predict.json
+
+      - name: Compare to spec section 14.3 baseline (20h target)
+        run: |
+          python -c "
+          import json, sys
+          with open('/tmp/predict.json') as f:
+              d = json.load(f)
+          pred = d.get('prediction', {})
+          target = pred.get('target_hours', 20.0)
+          actual = pred.get('hours')
+          if actual is None:
+              print(f'predicted=infinite target={target}h (no net drain)')
+              sys.exit(0)
+          ratio = (actual - target) / target * 100
+          sign = '+' if ratio >= 0 else ''
+          print(f'predicted={actual:.2f}h target={target}h delta={sign}{ratio:.1f}%')
+          if actual < target:
+              sys.exit(1)
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: power-predict-${{ github.run_id }}
+          path: /tmp/predict.json
+          retention-days: 90

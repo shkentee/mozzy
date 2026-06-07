@@ -1,0 +1,125 @@
+name: firmware
+
+# Builds the mozzy firmware under firmware/. This workflow is intentionally
+# workflow_dispatch-enabled so it can be started from a phone in GitHub Mobile.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/build-scratch.yml'
+      - 'west.yml'
+  pull_request:
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/build-scratch.yml'
+      - 'west.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: nordicplayground/nrfconnect-sdk:v2.7-branch
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install build tools in container
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            git ca-certificates \
+            python3-pip python3-setuptools python3-wheel \
+            cmake ninja-build gperf ccache \
+            device-tree-compiler dfu-util wget xz-utils file \
+            libsdl2-dev libmagic1
+          cmake --version | head -1
+          ninja --version
+          python3 --version
+
+      - name: Checkout repo (no submodules — scratch build doesn't need omi)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install west and locate Zephyr toolchain
+        run: |
+          set -e
+          python3 -m pip install --quiet --user west
+          PIP_BIN="$(python3 -c 'import site; print(site.USER_BASE)')/bin"
+          echo "$PIP_BIN" >> "$GITHUB_PATH"
+          export PATH="$PIP_BIN:$PATH"
+          west --version
+
+          if [ -f /workdir/zephyr/scripts/requirements.txt ]; then
+            python3 -m pip install --quiet --user -r /workdir/zephyr/scripts/requirements.txt
+          else
+            python3 -m pip install --quiet --user pyelftools pykwalify packaging anytree intelhex tabulate ply
+          fi
+
+          # Locate ARM toolchain (Nordic Toolchain Manager places it under a UUID).
+          GCC=$(find /root/ncs/toolchains /opt /workdir /usr/local -maxdepth 8 -type f -name "arm-zephyr-eabi-gcc" 2>/dev/null | head -1)
+          if [ -z "$GCC" ]; then
+            GCC=$(find /root/ncs/toolchains /opt -maxdepth 8 -type f -name "arm-none-eabi-gcc" 2>/dev/null | head -1)
+          fi
+          if [ -z "$GCC" ]; then
+            echo "::error::No arm-*-eabi-gcc binary found in container"
+            exit 1
+          fi
+          GCC_BIN_DIR=$(dirname "$GCC")
+          "$GCC" --version | head -1
+
+          if [[ "$GCC" == *"arm-zephyr-eabi-gcc" ]]; then
+            SDK_ROOT="$(dirname "$(dirname "$GCC_BIN_DIR")")"
+            echo "ZEPHYR_SDK_INSTALL_DIR=$SDK_ROOT" >> "$GITHUB_ENV"
+            echo "ZEPHYR_TOOLCHAIN_VARIANT=zephyr" >> "$GITHUB_ENV"
+          else
+            GNUARMEMB_ROOT="$(dirname "$GCC_BIN_DIR")"
+            echo "GNUARMEMB_TOOLCHAIN_PATH=$GNUARMEMB_ROOT" >> "$GITHUB_ENV"
+            echo "ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb" >> "$GITHUB_ENV"
+          fi
+          echo "ZEPHYR_BASE=/workdir/zephyr" >> "$GITHUB_ENV"
+          echo "$GCC_BIN_DIR" >> "$GITHUB_PATH"
+
+      - name: Cache ccache directory
+        uses: actions/cache@v4
+        with:
+          path: /github/home/.ccache
+          key: ccache-scratch-${{ runner.os }}-${{ hashFiles('firmware/**/*.c', 'firmware/**/*.h', 'firmware/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-scratch-${{ runner.os }}-
+
+      - name: Build firmware (xiao_ble/nrf52840/sense)
+        run: |
+          set -e
+          cd /workdir
+          west build \
+            -b xiao_ble/nrf52840/sense \
+            -p always \
+            "$GITHUB_WORKSPACE/firmware"
+          ls -la build/zephyr/ | head -20
+          echo "BUILD_DIR=/workdir/build" >> "$GITHUB_ENV"
+
+      - name: Convert hex to UF2 (XIAO BLE bootloader, family 0xADA52840)
+        run: |
+          set -e
+          wget -qO /tmp/uf2conv.py https://raw.githubusercontent.com/microsoft/uf2/master/utils/uf2conv.py
+          wget -qO /tmp/uf2families.json https://raw.githubusercontent.com/microsoft/uf2/master/utils/uf2families.json
+          python3 /tmp/uf2conv.py "$BUILD_DIR/zephyr/zephyr.hex" -c -f 0xADA52840 -o "$BUILD_DIR/firmware.uf2"
+          ls -la "$BUILD_DIR/firmware.uf2" "$BUILD_DIR/zephyr/zephyr.hex" "$BUILD_DIR/zephyr/zephyr.elf"
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozzy-firmware-xiao-ble-${{ github.sha }}
+          path: |
+            ${{ env.BUILD_DIR }}/zephyr/zephyr.hex
+            ${{ env.BUILD_DIR }}/zephyr/zephyr.elf
+            ${{ env.BUILD_DIR }}/zephyr/zephyr.map
+            ${{ env.BUILD_DIR }}/firmware.uf2
+          if-no-files-found: error
+          retention-days: 30

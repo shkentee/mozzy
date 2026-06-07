@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mojio / mojizo 取扱説明書</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #14212b;
+      --muted: #5f6f7b;
+      --line: #dbe5ea;
+      --soft: #f4f8f9;
+      --accent: #007f8a;
+      --accent-2: #1656a5;
+      --warn: #8a5a00;
+      --ok: #11684a;
+      --page: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+        "Yu Gothic", Meiryo, sans-serif;
+      line-height: 1.7;
+      color: var(--ink);
+      background: var(--page);
+    }
+
+    header {
+      padding: 40px 24px 28px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(135deg, #eef9f7 0%, #eef4fb 100%);
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 28px 24px 56px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 48px);
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 40px 0 14px;
+      padding-bottom: 8px;
+      font-size: 24px;
+      border-bottom: 2px solid var(--line);
+    }
+
+    h3 {
+      margin: 28px 0 10px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    ul,
+    ol {
+      padding-left: 1.4em;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: #edf2f4;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.94em;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 22px;
+      font-size: 15px;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--soft);
+      font-weight: 700;
+    }
+
+    .lead {
+      max-width: 780px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .name-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .name-box {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    .name-box strong {
+      display: block;
+      font-size: 20px;
+      color: var(--accent-2);
+    }
+
+    .callout {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent);
+      background: var(--soft);
+    }
+
+    .warning {
+      border-left-color: var(--warn);
+      background: #fff8e7;
+    }
+
+    .ok {
+      border-left-color: var(--ok);
+      background: #eef8f3;
+    }
+
+    .steps {
+      counter-reset: step;
+      padding-left: 0;
+      list-style: none;
+    }
+
+    .steps li {
+      position: relative;
+      min-height: 44px;
+      margin: 12px 0;
+      padding-left: 52px;
+    }
+
+    .steps li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 2px;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      text-align: center;
+      line-height: 34px;
+      font-weight: 700;
+    }
+
+    footer {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 24px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    @media (max-width: 720px) {
+      header {
+        padding: 32px 18px 24px;
+      }
+
+      main,
+      footer {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+
+      .name-grid {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>mojio / mojizo 取扱説明書</h1>
+    <p class="lead">mojioはスマホアプリ、mojizoは録音デバイス、mozzyはこの開発リポジトリです。録音、SDカードからの吸出し、Google Driveアップロード、ゲイン調整、スマホからのGitHubビルドまでをこの1枚にまとめています。</p>
+    <div class="name-grid" aria-label="名称の対応">
+      <div class="name-box"><span>アプリ</span><strong>mojio</strong><small>Androidで接続・吸出し・アップロード</small></div>
+      <div class="name-box"><span>デバイス</span><strong>mojizo</strong><small>BLE録音デバイス / XIAO nRF52840 Sense</small></div>
+      <div class="name-box"><span>リポジトリ</span><strong>mozzy</strong><small>アプリ・ファーム・補助ツール一式</small></div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>最初に準備するもの</h2>
+      <ul>
+        <li>mojizo本体、microSDカード、USBケーブル。</li>
+        <li>Androidスマホ。Bluetooth、位置情報、通知、バックグラウンド動作の許可が必要です。</li>
+        <li>Google DriveにアップロードするGoogleアカウント。</li>
+        <li>開発や再ビルドをする場合はGitHubアカウントと、リポジトリ <code>shkentee/mozzy</code> へのアクセス。</li>
+      </ul>
+      <div class="callout">
+        <strong>表示名のルール:</strong> アプリ名は <code>mojio</code>、BLEデバイス名は <code>mojizo</code>、GitHubリポジトリ名は <code>mozzy</code> です。古い検証用ファームが入っている場合だけ、BLE上では <code>Friend</code> と見えることがあります。
+      </div>
+    </section>
+
+    <section>
+      <h2>基本の流れ</h2>
+      <ol class="steps">
+        <li><strong>mojizoを起動します。</strong><br>microSDカードを入れ、電源を入れます。スマホのBluetoothをオンにします。</li>
+        <li><strong>mojioを開きます。</strong><br>初回はスキャン画面で <code>mojizo</code> を選びます。旧検証ファームでは <code>Friend</code> と表示される場合があります。</li>
+        <li><strong>録音を開始します。</strong><br>アプリの <code>SDに録音</code> スイッチ、またはデバイスの録音操作でSDカード録音をオンにします。</li>
+        <li><strong>吸出しを実行します。</strong><br>自動設定の場合、mojioがmojizoのSDカード上の録音データをスマホへ吸い出し、5分単位のチャンクとしてアップロード待ちにします。手動設定の場合は吸出しボタンを押します。</li>
+        <li><strong>Google Driveへアップロードします。</strong><br>自動アップロードがオンなら、通信条件を満たすとアップロードされます。手動設定の場合はアップロード操作を行います。</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>アプリ画面</h2>
+      <table>
+        <thead>
+          <tr><th>画面</th><th>主な用途</th><th>確認すること</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>スキャン</td><td>mojizoを探して接続</td><td>名前、電波強度、接続状態</td></tr>
+          <tr><td>デバイス</td><td>録音、吸出し、アップロードの状態確認</td><td>バッテリー、SD録音、吸出し進捗、Driveキュー</td></tr>
+          <tr><td>録音一覧</td><td>スマホ内に保存された録音の確認</td><td>録音ファイル、再生、削除</td></tr>
+          <tr><td>Drive</td><td>Google Drive側のファイル確認</td><td>アップロード済みファイル、削除</td></tr>
+          <tr><td>設定</td><td>同期・アップロード条件の調整</td><td>Driveフォルダ、Wi-Fiのみ、自動アップロード</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>録音</h2>
+      <h3>アプリから録音する</h3>
+      <ol>
+        <li>mojioでmojizoに接続します。</li>
+        <li>デバイス画面の <code>SDに録音</code> をオンにします。</li>
+        <li>録音を止めるときは同じスイッチをオフにします。</li>
+      </ol>
+      <h3>デバイス側で録音する</h3>
+      <p>mojizo側の録音操作でもSDカード録音を開始・停止できます。録音中はSDカードへOpus形式の音声データが保存されます。</p>
+      <div class="warning callout">
+        録音中に電源を抜くと、最後の短い区間が保存されないことがあります。停止操作のあと数秒待ってから電源を切るのが安全です。
+      </div>
+    </section>
+
+    <section>
+      <h2>吸出し</h2>
+      <p>mojioはmojizoのSDカードから録音ファイルをBLE経由で取り込みます。新しいmojizoファームでは範囲指定で安定して吸い出し、旧検証ファームでは旧方式の全体吸出しに自動で切り替えます。</p>
+      <ul>
+        <li><strong>自動:</strong> スケジュールや間隔に応じて吸出しを行います。</li>
+        <li><strong>手動:</strong> 必要なときだけ吸出しボタンで実行します。</li>
+        <li><strong>保存単位:</strong> 取り込んだ音声はDriveアップロードに向くよう、一定時間ごとのファイルに分けられます。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Google Driveアップロード</h2>
+      <ol>
+        <li>設定画面でGoogleアカウントにログインします。</li>
+        <li>アップロード先フォルダを確認します。既定の検証フォルダIDは <code>1IPNXw8EzMz6u6nGUo5H1xtuwkI4NKayJ</code> です。</li>
+        <li>自動アップロードをオンにすると、吸い出した録音が順番にアップロードされます。</li>
+        <li>モバイル通信を避けたい場合は <code>Wi-Fiのみ</code> をオンにします。</li>
+      </ol>
+      <div class="callout">
+        同じファイル名・同じサイズのファイルは重複アップロードしないように扱います。アップロード後、スマホ内の送信待ちファイルは削除されます。
+      </div>
+    </section>
+
+    <section>
+      <h2>ゲイン調整</h2>
+      <p>対応ファームウェアでは、mojioからマイク入力ゲインを変更できます。表示は <code>0.25x</code> から <code>6.0x</code> までの段階式です。</p>
+      <table>
+        <thead>
+          <tr><th>状況</th><th>動作</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>新しいmojizoファーム</td><td>Q4形式のゲイン特性を検出し、mojioにゲイン操作を表示します。</td></tr>
+          <tr><td>旧Omi互換ファーム</td><td>旧形式のゲイン特性があれば、0から8の段階をmojio側の表示に合わせて扱います。</td></tr>
+          <tr><td>ゲイン特性がないファーム</td><td>ゲイン操作は表示されません。録音・吸出し・アップロードはそのまま使えます。</td></tr>
+        </tbody>
+      </table>
+      <div class="warning callout">
+        現在手元で確認済みの検証用UF2はゲインサービスを出していません。ゲインを実機で確認するには、GitHub Actionsで新しいmojizoファームを作成し、mojizoへ書き込んでから再接続してください。
+      </div>
+    </section>
+
+    <section>
+      <h2>スマホからGitHubでビルドする</h2>
+      <p>スマホに開発環境を入れなくても、GitHub Mobileまたはスマホブラウザからビルドできます。</p>
+      <h3>APKを作る</h3>
+      <ol>
+        <li><code>https://github.com/shkentee/mozzy/actions</code> を開きます。</li>
+        <li><code>mobile</code> ワークフローを選び、<code>Run workflow</code> を押します。</li>
+        <li>完了した実行結果から <code>mozzy-release-&lt;sha&gt;</code> をダウンロードします。</li>
+        <li>ZIPを展開し、<code>app-release.apk</code> をAndroidへインストールします。</li>
+      </ol>
+      <h3>UF2ファームを作る</h3>
+      <ol>
+        <li><code>firmware</code> ワークフローを選び、<code>Run workflow</code> を押します。</li>
+        <li>完了した実行結果から <code>mozzy-firmware-xiao-ble-&lt;sha&gt;</code> をダウンロードします。</li>
+        <li>mojizoをブートローダーモードにして、表示されたドライブへ <code>firmware.uf2</code> をコピーします。</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>トラブル時</h2>
+      <table>
+        <thead>
+          <tr><th>症状</th><th>見るところ</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>mojizoが見つからない</td><td>Bluetooth、位置情報、デバイス電源、旧名 <code>Friend</code> 表示の有無を確認します。</td></tr>
+          <tr><td>接続が切れる</td><td>mojizoを近づけ、Androidのバッテリー最適化でmojioを制限しない設定にします。</td></tr>
+          <tr><td>吸出しが進まない</td><td>SD録音がオンか、SDカードが入っているか、手動モードで吸出し操作が必要かを確認します。</td></tr>
+          <tr><td>Driveに出ない</td><td>Googleログイン、アップロード先フォルダ、Wi-Fiのみ設定、アップロード待ち件数を確認します。</td></tr>
+          <tr><td>ゲインが出ない</td><td>現在のファームがゲイン特性を持っていない可能性があります。新しいmojizoファームへ更新してください。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>検証メモ</h2>
+      <ul>
+        <li>BLE接続、バッテリー表示、SDファイル一覧、PC補助ツールでの吸出しとWAV復元は実機で確認済みです。</li>
+        <li>実機で確認した吸出し例: <code>1780826727.opus_sd</code>、127,836 bytes、復元WAVは約29.76秒。</li>
+        <li>アプリ側の旧ファーム吸出し互換を追加し、0バイトで同期完了扱いにならないよう修正済みです。</li>
+        <li>mojio上で0.2MBの吸出し完了、未アップロードなし、アップロード済みIDの記録を確認済みです。</li>
+        <li>このCodexセッションのGoogle Driveコネクタでは対象フォルダが空に見えました。mojioにログインしているGoogleアカウントと、確認に使うDriveアカウントが一致しているか確認してください。</li>
+        <li>ゲインの実機操作は、ゲインサービス入りの新UF2を作成・書き込み後に確認します。</li>
+      </ul>
+      <p>最終更新: 2026-06-07 JST</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>mojio / mojizo / mozzy manual. Keep this file with the repository so it can be opened from GitHub or directly in a browser.</p>
+  </footer>
+</body>
+</html>

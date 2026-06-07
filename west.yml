@@ -1,0 +1,23 @@
+# West manifest for voice-recorder.
+#
+# Pulls in nRF Connect SDK v2.7, which transitively imports Zephyr,
+# modules, nrfxlib, MCUboot and the toolchain integration needed to
+# build for xiao_ble/nrf52840/sense.
+#
+# Usage (local):
+#   west init -l .
+#   west update --narrow -o=--depth=1
+#   west build -b xiao_ble/nrf52840/sense firmware
+manifest:
+  version: "0.13"
+
+  remotes:
+    - name: nrfconnect
+      url-base: https://github.com/nrfconnect
+
+  projects:
+    - name: nrf
+      remote: nrfconnect
+      repo-path: sdk-nrf
+      revision: v2.7.0
+      import: true

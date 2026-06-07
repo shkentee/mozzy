@@ -1,0 +1,23 @@
+mainmenu "mojizo firmware"
+
+source "Kconfig.zephyr"
+
+menu "mojizo firmware options"
+
+config WR_DEV_BUILD
+	bool "Development build (longer WDT, verbose logs)"
+	default y
+	help
+	  Enable development-friendly defaults: 5-minute watchdog timeout
+	  instead of 30 seconds, INFO-level application logs. Disable for
+	  production builds.
+
+config WR_WDT_TIMEOUT_MS
+	int "Watchdog timeout (ms)"
+	default 300000 if WR_DEV_BUILD
+	default 30000
+	help
+	  Timeout in milliseconds for the kernel watchdog. The main loop
+	  must call wdt_feed() faster than this or the SoC resets.
+
+endmenu

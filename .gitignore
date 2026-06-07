@@ -1,0 +1,37 @@
+# Build artifacts
+build/
+build_*/
+.west/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Compiled / generated
+__pycache__/
+*.py[cod]
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+*.uf2
+*.map
+
+# Logs / scratch
+*.log
+artifacts/verify/
+out/
+sd.img
+
+# secrets (never commit .env)
+.env
+.env.*
+!.env.example
