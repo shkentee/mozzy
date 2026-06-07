@@ -32,6 +32,7 @@ Verification on 2026-06-07 JST:
 - The GitHub Actions firmware artifact was flashed to mojizo. BLE advertising shows `mojizo`, mojio reconnects, and SD recording is OFF.
 - Mic gain uses the OMI-compatible settings service (`19b10010` / `19b10012`) with 0..8 levels and OMI dB labels: `Mute`, `-20dB`, `-10dB`, `+0dB`, `+6dB`, `+10dB`, `+20dB`, `+30dB`, `+40dB`.
 - mojizo maps those levels to the same Nordic PDM gain bytes as current OMI firmware: `0x00`, `0x14`, `0x1E`, `0x28`, `0x2E`, `0x32`, `0x3C`, `0x46`, `0x50`. Source notes are kept in `web-source/web_omi_gain_reference_20260607.md`.
+- Latest OMI dB/PDM gain alignment (`0181e7f`) is pushed and `mobile`, `firmware`, and `tools` Actions succeeded. Flashing this exact artifact is pending because the PC currently sees only the Android phone over USB, not the mojizo COM port or `XIAO-SENSE` UF2 drive.
 - New-firmware SD pull was re-verified after flashing: `1780826727.opus_sd` downloaded as 127,836 bytes and decoded to a 29.76 s WAV with 0 errors.
 
 ## Build From A Phone

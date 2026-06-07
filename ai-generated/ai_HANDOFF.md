@@ -8,6 +8,67 @@ Workspace: `C:\Users\knsol\projects\mozzy`
 
 This section supersedes any older "not pushed yet" / "gain pending" notes below.
 
+### OMI DevKit2 / Current OMI Mic Gain Correction
+
+This subsection is the newest source of truth for mic gain.
+
+- Latest pushed commit: `0181e7f` (`Align mic gain with OMI levels`).
+- The user corrected the OMI-compatible display table to:
+  - `0 Mute`
+  - `1 -20dB`
+  - `2 -10dB`
+  - `3 +0dB`
+  - `4 +6dB`
+  - `5 +10dB`
+  - `6 +20dB`
+  - `7 +30dB`
+  - `8 +40dB`
+- Official OMI source was checked and recorded separately in `web-source/web_omi_gain_reference_20260607.md`.
+- OMI DevKit2 fixed firmware has `#define MIC_GAIN 64` and assigns it to PDM left/right gain.
+- Current OMI firmware exposes settings service `19B10010` and mic gain characteristic `19B10012`.
+- Current OMI firmware maps level 0..8 to Nordic PDM gain bytes:
+  - `0x00`, `0x14`, `0x1E`, `0x28`, `0x2E`, `0x32`, `0x3C`, `0x46`, `0x50`
+  - default level is `6` (`+20dB`, `0x3C`)
+  - DevKit2 fixed `64` (`0x40`) sits between levels 6 and 7.
+- mojizo firmware now uses the same level table and writes the raw Nordic PDM gain via `nrf_pdm_gain_set()`.
+- mojio app labels are dB-only; old multiplier labels are removed.
+- `tools/ble_gain_control.py` now reports `omi_level=<n> <label> raw_gain=0x..`.
+- Local checks passed after this correction:
+  - `python -m compileall -q tools`
+  - `flutter analyze`
+  - `flutter test`
+- GitHub Actions for commit `0181e7f`:
+  - `tools`: success, run `27092520799`
+  - `firmware`: success, run `27092520804`
+  - `mobile`: success, run `27092520803`
+- Firmware artifact was downloaded to:
+  - `artifacts/firmware/27092520804/mozzy-firmware-xiao-ble-0181e7fe6888ba6ed95e63ce1c86fdef9bf648b6/firmware.uf2`
+- Flashing that artifact did not complete because the PC currently sees no mojizo COM port and no `XIAO-SENSE` drive:
+  - `flash.ps1` reported: `no COM port and no XIAO-SENSE drive`
+  - `Get-CimInstance Win32_SerialPort` returned no serial ports
+  - present USB device search only showed the Xiaomi phone
+- PC-side BLE status checks also did not connect at that moment:
+  - `ble_gain_control.py status --mac FF:94:C9:1A:C9:B3` -> `BleakDeviceNotFoundError`
+  - `ble_rec_control.py status --mac FF:94:C9:1A:C9:B3` -> `BleakDeviceNotFoundError`
+- APK artifacts were downloaded, but ADB install could not update the currently installed app because package signatures differed:
+  - release APK install failed with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`
+  - debug APK install also failed with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`
+  - do not uninstall automatically unless the user confirms, because it removes app data.
+- Next physical step: make mojizo visible to the PC over USB, or double-tap reset so the `XIAO-SENSE` UF2 drive appears, then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\flash.ps1 artifacts\firmware\27092520804\mozzy-firmware-xiao-ble-0181e7fe6888ba6ed95e63ce1c86fdef9bf648b6\firmware.uf2
+```
+
+- After flashing, verify and restore with:
+
+```powershell
+python tools\ble_gain_control.py status --mac FF:94:C9:1A:C9:B3
+python tools\ble_gain_control.py level 8 --mac FF:94:C9:1A:C9:B3
+python tools\ble_gain_control.py level 6 --mac FF:94:C9:1A:C9:B3
+python tools\ble_rec_control.py off --mac FF:94:C9:1A:C9:B3
+```
+
 - GitHub repo is created and pushed: `https://github.com/shkentee/mozzy` (public).
 - Current branch: `main`, tracking `origin/main`.
 - Latest pushed commit at handoff update before OMI gain work: `3318d1c` (`Verify mojizo firmware and gain controls`).
