@@ -1,0 +1,137 @@
+name: firmware-artifact-branch
+
+# Builds the firmware and publishes the latest UF2 to the firmware-artifacts
+# branch so it can be fetched without knowing the GitHub Actions run ID.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware-artifact-branch.yml'
+      - 'west.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    container:
+      image: nordicplayground/nrfconnect-sdk:v2.7-branch
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install build tools in container
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            git ca-certificates \
+            python3-pip python3-setuptools python3-wheel \
+            cmake ninja-build gperf ccache \
+            device-tree-compiler dfu-util wget xz-utils file \
+            libsdl2-dev libmagic1
+          cmake --version | head -1
+          ninja --version
+          python3 --version
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install west and locate Zephyr toolchain
+        run: |
+          set -e
+          python3 -m pip install --quiet --user west
+          PIP_BIN="$(python3 -c 'import site; print(site.USER_BASE)')/bin"
+          echo "$PIP_BIN" >> "$GITHUB_PATH"
+          export PATH="$PIP_BIN:$PATH"
+          west --version
+
+          if [ -f /workdir/zephyr/scripts/requirements.txt ]; then
+            python3 -m pip install --quiet --user -r /workdir/zephyr/scripts/requirements.txt
+          else
+            python3 -m pip install --quiet --user pyelftools pykwalify packaging anytree intelhex tabulate ply
+          fi
+
+          GCC=$(find /root/ncs/toolchains /opt /workdir /usr/local -maxdepth 8 -type f -name "arm-zephyr-eabi-gcc" 2>/dev/null | head -1)
+          if [ -z "$GCC" ]; then
+            GCC=$(find /root/ncs/toolchains /opt -maxdepth 8 -type f -name "arm-none-eabi-gcc" 2>/dev/null | head -1)
+          fi
+          if [ -z "$GCC" ]; then
+            echo "::error::No arm-*-eabi-gcc binary found in container"
+            exit 1
+          fi
+          GCC_BIN_DIR=$(dirname "$GCC")
+          "$GCC" --version | head -1
+
+          if [[ "$GCC" == *"arm-zephyr-eabi-gcc" ]]; then
+            SDK_ROOT="$(dirname "$(dirname "$GCC_BIN_DIR")")"
+            echo "ZEPHYR_SDK_INSTALL_DIR=$SDK_ROOT" >> "$GITHUB_ENV"
+            echo "ZEPHYR_TOOLCHAIN_VARIANT=zephyr" >> "$GITHUB_ENV"
+          else
+            GNUARMEMB_ROOT="$(dirname "$GCC_BIN_DIR")"
+            echo "GNUARMEMB_TOOLCHAIN_PATH=$GNUARMEMB_ROOT" >> "$GITHUB_ENV"
+            echo "ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb" >> "$GITHUB_ENV"
+          fi
+          echo "ZEPHYR_BASE=/workdir/zephyr" >> "$GITHUB_ENV"
+          echo "$GCC_BIN_DIR" >> "$GITHUB_PATH"
+
+      - name: Cache ccache directory
+        uses: actions/cache@v4
+        with:
+          path: /github/home/.ccache
+          key: ccache-artifact-${{ runner.os }}-${{ hashFiles('firmware/**/*.c', 'firmware/**/*.h', 'firmware/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-artifact-${{ runner.os }}-
+
+      - name: Build firmware
+        run: |
+          set -e
+          cd /workdir
+          west build \
+            -b xiao_ble/nrf52840/sense \
+            -p always \
+            "$GITHUB_WORKSPACE/firmware"
+          echo "BUILD_DIR=/workdir/build" >> "$GITHUB_ENV"
+
+      - name: Convert hex to UF2
+        run: |
+          set -e
+          wget -qO /tmp/uf2conv.py https://raw.githubusercontent.com/microsoft/uf2/master/utils/uf2conv.py
+          wget -qO /tmp/uf2families.json https://raw.githubusercontent.com/microsoft/uf2/master/utils/uf2families.json
+          python3 /tmp/uf2conv.py "$BUILD_DIR/zephyr/zephyr.hex" -c -f 0xADA52840 -o "$BUILD_DIR/firmware.uf2"
+          ls -la "$BUILD_DIR/firmware.uf2"
+
+      - name: Publish UF2 to firmware-artifacts branch
+        run: |
+          set -e
+          ARTIFACT_BRANCH=firmware-artifacts
+          TMP_DIR=/tmp/firmware-artifacts
+          rm -rf "$TMP_DIR"
+
+          if git ls-remote --exit-code --heads "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$ARTIFACT_BRANCH" >/dev/null 2>&1; then
+            git clone --depth 1 --branch "$ARTIFACT_BRANCH" "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$TMP_DIR"
+          else
+            git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$TMP_DIR"
+            cd "$TMP_DIR"
+            git checkout --orphan "$ARTIFACT_BRANCH"
+            git rm -rf .
+          fi
+
+          cd "$TMP_DIR"
+          mkdir -p firmware/latest
+          cp "$BUILD_DIR/firmware.uf2" firmware/latest/firmware.uf2
+          printf "%s\n" "$GITHUB_SHA" > firmware/latest/source_sha.txt
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > firmware/latest/built_at_utc.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add firmware/latest/firmware.uf2 firmware/latest/source_sha.txt firmware/latest/built_at_utc.txt
+          git commit -m "Build firmware for ${GITHUB_SHA}" || exit 0
+          git push origin "$ARTIFACT_BRANCH"
