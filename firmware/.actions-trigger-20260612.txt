@@ -1,0 +1,3 @@
+Trigger firmware GitHub Actions build for mojizo current firmware.
+Source branch: main
+Created: 2026-06-12 JST
