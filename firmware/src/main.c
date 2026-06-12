@@ -244,9 +244,9 @@ int main(void)
 	}
 
 	(void)k_thread_create(&sd_thread, sd_thread_stack,
-			      K_THREAD_STACK_SIZEOF(sd_thread_stack),
-			      sd_worker, NULL, NULL, NULL,
-			      SD_THREAD_PRIORITY, 0, K_NO_WAIT);
+				      K_THREAD_STACK_SIZEOF(sd_thread_stack),
+				      sd_worker, NULL, NULL, NULL,
+				      SD_THREAD_PRIORITY, 0, K_NO_WAIT);
 
 	/* Arm the watchdog only after init (SD mount/format can be slow). */
 	watchdog_arm();
@@ -255,7 +255,7 @@ int main(void)
 	while (1) {
 		watchdog_feed_now();
 		/* Status indicator: a brief, dim flash every ~5 s.
-		 *   recording -> RED flash,  idle/paused -> GREEN flash. */
+		 *   recording -> WHITE flash, idle/paused -> GREEN flash. */
 		wr_led_dim_flash(wr_recorder_is_recording());
 		LOG_DBG("alive tick=%u recording=%d", tick,
 			(int)wr_recorder_is_recording());

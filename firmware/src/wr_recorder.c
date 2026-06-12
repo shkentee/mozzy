@@ -35,6 +35,7 @@ struct recorder_packet {
 K_MSGQ_DEFINE(record_queue, sizeof(struct recorder_packet), RECORD_QUEUE_DEPTH, 4);
 static K_THREAD_STACK_DEFINE(record_stack, RECORD_STACK_SIZE);
 static struct k_thread record_thread;
+static bool record_thread_started;
 
 static struct fs_file_t record_file;
 static char record_path[RECORD_PATH_MAX];
@@ -48,10 +49,10 @@ static atomic_t dropped_packets;
 static atomic_t write_errors;
 
 /* Time-sync (spec §10 / D7). The device has no RTC, so the phone writes the
- * current Unix time over BLE; we use it to rename the active recording to its
- * real <epoch>.opus_sd start time. These are set from the BLE RX thread but
- * the actual fs_rename is deferred to the recorder thread (apply_sync_rename),
- * so all filesystem access stays single-threaded. */
+ * current Unix time over BLE. Newly opened files use that wall-clock time in
+ * their filename. If sync arrives while a file is already open, keep that file
+ * open and leave its temporary rec_NNNN name; closing/renaming/reopening a live
+ * SD file has proven too fragile on the XIAO + SPI-SD path. */
 static int64_t file_open_uptime_ms;	/* k_uptime when current file opened */
 static uint64_t sync_epoch_secs;	/* Unix time reported by the phone */
 static int64_t sync_uptime_ms;		/* k_uptime captured at that report */
@@ -60,7 +61,7 @@ static bool file_is_epoch_named;	/* current file already <epoch>-named */
 
 /* Recording on/off (D9). The phone toggles SD recording over BLE; the actual
  * file close/open is deferred to the recorder thread (apply_pause_resume) so
- * all filesystem access stays single-threaded, like the time-sync rename. */
+ * regular filesystem access stays on one worker. */
 static atomic_t pause_pending;		/* BLE RX -> recorder thread: stop */
 static atomic_t resume_pending;		/* BLE RX -> recorder thread: start */
 static bool time_synced;		/* phone has provided wall-clock time */
@@ -179,20 +180,10 @@ static int checkpoint_file(void)
 		return flush_rc;
 	}
 
-	const int close_rc = fs_close(&record_file);
-	if (close_rc < 0) {
-		LOG_WRN("record fs_close returned %d", close_rc);
-	}
-
-	fs_file_t_init(&record_file);
-	const int open_rc = fs_open(&record_file, record_path,
-				    FS_O_CREATE | FS_O_WRITE | FS_O_APPEND);
-	if (open_rc < 0) {
+	const int sync_rc = fs_sync(&record_file);
+	if (sync_rc < 0) {
 		atomic_inc(&write_errors);
-		atomic_set(&recording_active, 0);
-		LOG_ERR("record reopen(%s) failed: %d; recording stopped",
-			record_path, open_rc);
-		return open_rc;
+		LOG_WRN("record fs_sync returned %d", sync_rc);
 	}
 
 	return 0;
@@ -216,11 +207,9 @@ static void maybe_checkpoint_file(void)
 		written_bytes);
 }
 
-/* Apply a pending time-sync by renaming the active recording to its real
- * <epoch>.opus_sd start time. Runs on the recorder thread so it shares the
- * single-threaded filesystem access; the file is flushed and closed before
- * the rename (renaming an open file is unsafe) and reopened in append mode,
- * reusing the proven checkpoint close/reopen pattern. */
+/* Apply a pending time-sync. Do not rename the active file anymore: keeping
+ * the file open is more important than making the first file pretty. The next
+ * recording session will get an epoch filename because time_synced is set. */
 static void apply_sync_rename(void)
 {
 	if (!atomic_cas(&sync_pending, 1, 0)) {
@@ -230,50 +219,8 @@ static void apply_sync_rename(void)
 		return;
 	}
 
-	const int64_t elapsed_ms = sync_uptime_ms - file_open_uptime_ms;
-	uint64_t start_epoch = sync_epoch_secs;
-
-	if (elapsed_ms > 0) {
-		start_epoch -= (uint64_t)(elapsed_ms / 1000);
-	}
-
-	char new_path[RECORD_PATH_MAX];
-
-	(void)snprintf(new_path, sizeof(new_path),
-		       RECORD_DIR "/%010llu.opus_sd",
-		       (unsigned long long)start_epoch);
-
-	(void)flush_write_buffer();
-
-	const int close_rc = fs_close(&record_file);
-
-	if (close_rc < 0) {
-		LOG_WRN("sync rename: fs_close returned %d", close_rc);
-	}
-
-	const int ren_rc = fs_rename(record_path, new_path);
-
-	if (ren_rc < 0) {
-		LOG_ERR("sync rename %s -> %s failed: %d; keeping old name",
-			record_path, new_path, ren_rc);
-	} else {
-		LOG_INF("sync rename %s -> %s", record_path, new_path);
-		strncpy(record_path, new_path, sizeof(record_path) - 1);
-		record_path[sizeof(record_path) - 1] = '\0';
-		file_is_epoch_named = true;
-	}
-
-	fs_file_t_init(&record_file);
-
-	const int open_rc = fs_open(&record_file, record_path,
-				    FS_O_CREATE | FS_O_WRITE | FS_O_APPEND);
-
-	if (open_rc < 0) {
-		atomic_inc(&write_errors);
-		atomic_set(&recording_active, 0);
-		LOG_ERR("sync rename reopen(%s) failed: %d; recording stopped",
-			record_path, open_rc);
-	}
+	file_is_epoch_named = true;
+	LOG_INF("time sync received; keeping active file open as %s", record_path);
 }
 
 /* Open a fresh recording file and reset per-file state. Shared by start,
@@ -302,7 +249,7 @@ static int open_new_record_file(void)
 	last_checkpoint_packet = 0U;
 	file_open_uptime_ms = k_uptime_get();
 	/* Named by epoch when time is known -> already final; otherwise rec_NNNN
-	 * and apply_sync_rename() will rename it once the phone syncs time. */
+	 * stays open under that temporary name until the session ends. */
 	file_is_epoch_named = time_synced;
 	atomic_set(&sync_pending, 0);
 	return 0;
@@ -391,6 +338,19 @@ static void record_entry(void *arg1, void *arg2, void *arg3)
 	}
 }
 
+static void start_record_thread_once(void)
+{
+	if (record_thread_started) {
+		return;
+	}
+
+	k_thread_create(&record_thread, record_stack,
+			K_THREAD_STACK_SIZEOF(record_stack),
+			record_entry, NULL, NULL, NULL,
+			RECORD_THREAD_PRIORITY, 0, K_NO_WAIT);
+	record_thread_started = true;
+}
+
 int wr_recorder_start(void)
 {
 	if (atomic_get(&recording_active)) {
@@ -403,15 +363,12 @@ int wr_recorder_start(void)
 	const int rc = open_new_record_file();
 
 	if (rc < 0) {
+		start_record_thread_once();
 		return rc;
 	}
 
 	atomic_set(&recording_active, 1);
-
-	k_thread_create(&record_thread, record_stack,
-			K_THREAD_STACK_SIZEOF(record_stack),
-			record_entry, NULL, NULL, NULL,
-			RECORD_THREAD_PRIORITY, 0, K_NO_WAIT);
+	start_record_thread_once();
 
 	LOG_INF("Recording Opus packets to %s", record_path);
 	return 0;
@@ -442,9 +399,9 @@ void wr_recorder_submit_opus(const uint8_t *packet, size_t len, void *user_data)
 void wr_recorder_set_sync_time(uint64_t unix_secs)
 {
 	/* Record the phone's wall-clock and the uptime at which we learned it.
-	 * The recorder thread back-computes the file's start epoch from these
-	 * and the uptime captured when the file was opened. Only signal a rename
-	 * while we are actually recording and haven't already named this file. */
+	 * Future files use these values to build epoch filenames. If a rec_NNNN
+	 * file is already open, signal the recorder thread only to mark this file
+	 * handled without closing it. */
 	sync_epoch_secs = unix_secs;
 	sync_uptime_ms = k_uptime_get();
 	time_synced = true;
