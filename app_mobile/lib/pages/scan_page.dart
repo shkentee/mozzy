@@ -128,9 +128,13 @@ class _ScanPageState extends State<ScanPage> {
         _autoConnectTimer?.cancel();
         _autoConnectTimer = null;
 
-        // Clear auto-connect state before navigating to avoid a second trigger
-        // if the stream fires again while the push is in flight.
-        _autoConnectId = null;
+        // Clear auto-connect state before navigating to avoid a stale banner
+        // or a second trigger if the stream fires again while the push is in
+        // flight.
+        setState(() {
+          _autoConnectId = null;
+          _autoConnectName = null;
+        });
         _openResult(r);
         return;
       }
@@ -219,7 +223,7 @@ class _ScanPageState extends State<ScanPage> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Auto-connecting to $autoName...',
+                      '$autoName へ接続中…',
                       style: const TextStyle(fontStyle: FontStyle.italic),
                     ),
                   ),

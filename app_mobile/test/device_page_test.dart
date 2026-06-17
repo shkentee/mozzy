@@ -171,7 +171,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
 
-    expect(find.textContaining('error:'), findsOneWidget);
+    expect(find.text('接続エラー'), findsOneWidget);
     expect(find.textContaining('boom'), findsOneWidget);
   });
 

@@ -260,22 +260,34 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
   }) {
     final cs = Theme.of(context).colorScheme;
     final dim = cs.onSurface.withOpacity(0.6);
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 20, color: cs.secondary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(title,
-              style:
-                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+        Row(
+          children: [
+            Icon(icon, size: 20, color: cs.secondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style:
+                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
         ),
+        const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             color: cs.secondary.withOpacity(0.12),
             borderRadius: BorderRadius.circular(999),
           ),
-          child: Text(mode, style: TextStyle(fontSize: 12, color: dim)),
+          child: Text(
+            mode,
+            softWrap: true,
+            style: TextStyle(fontSize: 12, color: dim),
+          ),
         ),
       ],
     );
@@ -483,8 +495,11 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
         : _status == 'disconnected'
             ? '未接続'
             : _status.startsWith('error:')
-                ? _status
+                ? '接続エラー'
                 : '接続中…';
+    final statusDetail = _status.startsWith('error:')
+        ? _status.replaceFirst(RegExp(r'^error:\s*'), '')
+        : null;
     return Scaffold(
       appBar: AppBar(
         title: const MojioWordmark(fontSize: 24),
@@ -615,10 +630,16 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Text(statusJa,
-                                style: TextStyle(color: dim, fontSize: 13)),
-                            const Spacer(),
+                            Expanded(
+                              child: Text(
+                                statusJa,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: dim, fontSize: 13),
+                              ),
+                            ),
                             if (_batteryPct != null) ...[
+                              const SizedBox(width: 8),
                               Icon(
                                 _batteryPct! >= 80
                                     ? Icons.battery_full
@@ -634,6 +655,15 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
                             ],
                           ],
                         ),
+                        if (statusDetail != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            statusDetail,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: dim),
+                          ),
+                        ],
                         const SizedBox(height: 10),
                         Text(
                           '受信 $_packets ・ 保存 ${_fmtMB(_savedBytes)} ・ ロスト $_lostPackets',
