@@ -56,6 +56,7 @@ dev_dependencies:
   # is null-safety native (no codegen / build_runner step needed) and
   # plays nicely with abstract Stream getters on our Wr* wrappers.
   mocktail: ^1.0.4
+  path_provider_platform_interface: ^2.1.2
   flutter_launcher_icons: ^0.14.4
 
 flutter:

@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
 
 import '../services/wr_drive_uploader.dart';
+import '../services/wr_foreground_service.dart';
 import '../services/wr_wired_usb.dart';
+
+typedef PrepareExclusiveUsb = Future<void> Function();
 
 class WiredRescuePage extends StatefulWidget {
   const WiredRescuePage({
     super.key,
     WrWiredUsb? wired,
     WrDriveUploader? uploader,
+    PrepareExclusiveUsb? prepareExclusiveUsb,
   })  : _wiredOverride = wired,
-        _uploaderOverride = uploader;
+        _uploaderOverride = uploader,
+        _prepareExclusiveUsbOverride = prepareExclusiveUsb;
 
   final WrWiredUsb? _wiredOverride;
   final WrDriveUploader? _uploaderOverride;
+  final PrepareExclusiveUsb? _prepareExclusiveUsbOverride;
 
   @override
   State<WiredRescuePage> createState() => _WiredRescuePageState();
@@ -24,10 +30,25 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
       widget._uploaderOverride ?? WrDriveUploader();
 
   bool _busy = false;
+  bool _exclusiveUsbReady = false;
   String _status = 'USB-Cでスマホとデバイスをつないでから確認してください';
   List<WrWiredFile> _files = const [];
 
   String _fmtMB(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
+
+  Future<void> _defaultPrepareExclusiveUsb() async {
+    await WrForegroundService.stopBackgroundSync();
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    await WrForegroundService.stop();
+  }
+
+  Future<void> _prepareExclusiveUsb() async {
+    if (_exclusiveUsbReady) return;
+    final prepare =
+        widget._prepareExclusiveUsbOverride ?? _defaultPrepareExclusiveUsb;
+    await prepare();
+    _exclusiveUsbReady = true;
+  }
 
   @override
   void initState() {
@@ -43,9 +64,12 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     if (_busy) return;
     setState(() {
       _busy = true;
-      _status = 'USBデバイス確認中...';
+      _status = 'バックグラウンド同期を停止中...';
     });
     try {
+      await _prepareExclusiveUsb();
+      if (!mounted) return;
+      setState(() => _status = 'USBデバイス確認中...');
       final pong = await _wired.ping();
       final files = await _wired.listFiles();
       if (!mounted) return;
@@ -67,9 +91,12 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     if (_busy) return;
     setState(() {
       _busy = true;
-      _status = 'USB救出を開始します...';
+      _status = 'バックグラウンド同期を停止中...';
     });
     try {
+      await _prepareExclusiveUsb();
+      if (!mounted) return;
+      setState(() => _status = 'USB救出を開始します...');
       final uploaded = await _wired.fetchAndUploadAll(
         uploader: _uploader,
         onProgress: (message) {
@@ -95,9 +122,12 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     if (_busy) return;
     setState(() {
       _busy = true;
-      _status = '録音を一時停止中...';
+      _status = 'バックグラウンド同期を停止中...';
     });
     try {
+      await _prepareExclusiveUsb();
+      if (!mounted) return;
+      setState(() => _status = '録音を一時停止中...');
       await _wired.pauseRecording();
       try {
         setState(() => _status = 'USB吸出し中: ${file.name}');
