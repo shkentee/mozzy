@@ -93,6 +93,19 @@ jobs:
           restore-keys: |
             ccache-scratch-${{ runner.os }}-
 
+      - name: Apply Zephyr patches
+        run: |
+          set -e
+          PATCH="$GITHUB_WORKSPACE/firmware/patches/0001-sd-fix-ctrl-sync-missing-break.patch"
+          if git -C /workdir/zephyr apply --check "$PATCH"; then
+            git -C /workdir/zephyr apply "$PATCH"
+          elif git -C /workdir/zephyr apply --reverse --check "$PATCH"; then
+            echo "Zephyr CTRL_SYNC patch is already applied"
+          else
+            echo "::error::Zephyr CTRL_SYNC patch is not applicable"
+            exit 1
+          fi
+
       - name: Build firmware (xiao_ble/nrf52840/sense)
         run: |
           set -e
