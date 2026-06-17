@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mojio/pages/wired_rescue_page.dart';
 import 'package:mojio/services/wr_wired_usb.dart';
 
 void main() {
@@ -39,5 +41,32 @@ void main() {
 
     final wired = WrWiredUsb(channel: channel);
     expect(await wired.ping(), 'mozzy');
+  });
+
+  testWidgets('WiredRescuePage checks USB automatically on open',
+      (tester) async {
+    final calls = <String>[];
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      calls.add(call.method);
+      return switch (call.method) {
+        'ping' => 'mozzy',
+        'listFiles' => [
+            {'name': 'rec_0001.opus_sd', 'size': 42},
+          ],
+        _ => null,
+      };
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WiredRescuePage(wired: WrWiredUsb(channel: channel)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(calls, ['ping', 'listFiles']);
+    expect(find.text('接続OK（mozzy）。1件見つかりました'), findsOneWidget);
+    expect(find.text('rec_0001.opus_sd'), findsOneWidget);
   });
 }

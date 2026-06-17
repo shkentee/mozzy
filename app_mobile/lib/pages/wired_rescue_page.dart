@@ -29,6 +29,16 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
 
   String _fmtMB(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _refresh();
+      }
+    });
+  }
+
   Future<void> _refresh() async {
     if (_busy) return;
     setState(() {
