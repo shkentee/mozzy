@@ -3,7 +3,7 @@
  *   red   = led0 (P0.26)   green = led1 (P0.30)   blue = led2 (P0.06)
  *
  * Used as a status indicator: a brief, dim flash every few seconds —
- * red while recording, green while idle/paused. Dimming is done in software
+ * white while recording, green while idle/paused. Dimming is done in software
  * (low-duty PWM by bit-banging) because the board's hardware PWM is wired to
  * P0.17, not to the LED pins.
  */

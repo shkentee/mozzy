@@ -127,6 +127,10 @@ static void power_optimize(void)
 
 static bool take_format_sd_request(void)
 {
+#if defined(CONFIG_WR_FORCE_FORMAT_SD_ON_BOOT) && CONFIG_WR_FORCE_FORMAT_SD_ON_BOOT
+	return true;
+#endif
+
 	if (NRF_POWER->GPREGRET != WR_BOOT_FORMAT_SD_MAGIC) {
 		return false;
 	}
@@ -255,7 +259,7 @@ int main(void)
 	while (1) {
 		watchdog_feed_now();
 		/* Status indicator: a brief, dim flash every ~5 s.
-		 *   recording -> RED flash,  idle/paused -> GREEN flash. */
+		 *   recording -> WHITE flash, idle/paused -> GREEN flash. */
 		wr_led_dim_flash(wr_recorder_is_recording());
 		LOG_DBG("alive tick=%u recording=%d", tick,
 			(int)wr_recorder_is_recording());

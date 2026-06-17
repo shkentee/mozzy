@@ -15,6 +15,13 @@
  * This lets `flash.ps1` drop the board into UF2 mode without a physical
  * reset double-tap.
  *
+ * The same listener also serves the mobile app's wired rescue protocol:
+ *   wr-ping
+ *   wr-list
+ *   wr-fetch <basename.opus_sd>
+ * Responses are WR-prefixed text/Base64 lines so the app can ignore ordinary
+ * console logs on the shared CDC channel.
+ *
  * Returns 0 on success.
  */
 int wr_boot_cmd_init(void);

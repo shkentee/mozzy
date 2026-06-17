@@ -1,36 +1,294 @@
-/* USB CDC "boot" listener — soft trigger for UF2 bootloader entry.
+/* USB CDC command listener.
  *
- * The Adafruit UF2 bootloader on XIAO BLE Sense reads NRF_POWER->GPREGRET
- * at startup. Writing 0x57 (DFU_MAGIC_UF2_RESET) before sys_reboot(COLD)
- * drops the board into UF2 mass-storage mode where a UF2 file can be
- * copy-pasted onto the resulting USB drive.
+ * Existing commands:
+ *   boot       -> enter UF2 bootloader
+ *   format-sd  -> reboot into destructive SD formatter
  *
- * Listener: register a UART RX IRQ on the console (CDC ACM), buffer
- * incoming bytes, match "boot" line → arm magic + reboot.
+ * Wired rescue commands for the mobile app:
+ *   wr-ping
+ *   wr-pause
+ *   wr-resume
+ *   wr-list
+ *   wr-fetch <basename.opus_sd>
  *
- * Replaces the manual reset-button double-tap during bring-up; flash.ps1
- * sends `boot\n` over the COM port and gets a UF2 drive in seconds.
+ * The rescue protocol is text + Base64 lines, not raw binary. The same CDC
+ * port is also the Zephyr console, so using WR-prefixed lines lets the Android
+ * side ignore unrelated boot/runtime logs instead of corrupting audio bytes.
  */
 #include "boot_cmd.h"
 
+#include <errno.h>
 #include <hal/nrf_power.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/fs/fs.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/printk.h>
 #include <zephyr/sys/reboot.h>
+
+#include "wr_recorder.h"
 
 LOG_MODULE_REGISTER(wr_boot, LOG_LEVEL_INF);
 
 /* DFU_MAGIC_UF2_RESET from Adafruit_nRF52_Bootloader. */
 #define ADAFRUIT_UF2_MAGIC 0x57
 
-#define BOOT_RX_BUF_LEN 16
+#define BOOT_RX_BUF_LEN 96
+#define BOOT_CMD_QUEUE_DEPTH 4
+#define BOOT_CMD_STACK_SIZE 4096
+#define BOOT_CMD_PRIORITY 7
+#define STORAGE_MOUNT_POINT "/SD:"
+#define STORAGE_MAX_FILENAME 63
+#define STORAGE_MAX_PATH 80
+#define WIRED_CHUNK_BYTES 192
+#define WIRED_B64_BYTES (((WIRED_CHUNK_BYTES + 2) / 3) * 4)
 
 static char rx_buf[BOOT_RX_BUF_LEN];
 static size_t rx_idx;
+static const struct device *console_uart;
+static bool boot_cmd_thread_started;
+
+K_MSGQ_DEFINE(boot_cmd_queue, BOOT_RX_BUF_LEN, BOOT_CMD_QUEUE_DEPTH, 4);
+static K_THREAD_STACK_DEFINE(boot_cmd_stack, BOOT_CMD_STACK_SIZE);
+static struct k_thread boot_cmd_thread;
+
+static const char b64_table[] =
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static void uart_send(const uint8_t *data, size_t len)
+{
+	if (console_uart == NULL) {
+		return;
+	}
+	for (size_t i = 0; i < len; i++) {
+		uart_poll_out(console_uart, data[i]);
+	}
+}
+
+static void uart_send_str(const char *s)
+{
+	uart_send((const uint8_t *)s, strlen(s));
+}
+
+static void uart_sendf(const char *fmt, ...)
+{
+	char line[160];
+	va_list args;
+
+	va_start(args, fmt);
+	const int n = vsnprintk(line, sizeof(line), fmt, args);
+	va_end(args);
+
+	if (n <= 0) {
+		return;
+	}
+	uart_send((const uint8_t *)line,
+		  n < (int)sizeof(line) ? (size_t)n : sizeof(line));
+}
+
+static size_t base64_encode(const uint8_t *in, size_t len, char *out)
+{
+	size_t o = 0;
+	for (size_t i = 0; i < len; i += 3) {
+		const uint32_t a = in[i];
+		const uint32_t b = (i + 1 < len) ? in[i + 1] : 0;
+		const uint32_t c = (i + 2 < len) ? in[i + 2] : 0;
+		const uint32_t v = (a << 16) | (b << 8) | c;
+
+		out[o++] = b64_table[(v >> 18) & 0x3F];
+		out[o++] = b64_table[(v >> 12) & 0x3F];
+		out[o++] = (i + 1 < len) ? b64_table[(v >> 6) & 0x3F] : '=';
+		out[o++] = (i + 2 < len) ? b64_table[v & 0x3F] : '=';
+	}
+	out[o] = '\0';
+	return o;
+}
+
+static bool filename_allowed(const char *filename)
+{
+	if (filename == NULL || filename[0] == '\0') {
+		return false;
+	}
+	for (size_t i = 0; filename[i] != '\0'; i++) {
+		if (filename[i] == '/' || filename[i] == '\\' ||
+		    filename[i] == ':') {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool is_audio_file(const char *filename)
+{
+	const char *suffix = ".opus_sd";
+	const size_t name_len = strlen(filename);
+	const size_t suffix_len = strlen(suffix);
+
+	return name_len > suffix_len &&
+	       strcmp(&filename[name_len - suffix_len], suffix) == 0;
+}
+
+static int build_path(char *path, size_t path_size, const char *filename)
+{
+	if (!filename_allowed(filename) || !is_audio_file(filename)) {
+		return -EINVAL;
+	}
+	const int written = snprintk(path, path_size, STORAGE_MOUNT_POINT "/%s",
+				     filename);
+	if (written < 0 || written >= (int)path_size) {
+		return -ENAMETOOLONG;
+	}
+	return 0;
+}
+
+static void handle_wired_list(void)
+{
+	struct fs_dir_t dir;
+	struct fs_dirent entry;
+	uint32_t count = 0;
+
+	fs_dir_t_init(&dir);
+	int rc = fs_opendir(&dir, STORAGE_MOUNT_POINT);
+	if (rc < 0) {
+		uart_sendf("WR-ERR list-open %d\n", rc);
+		return;
+	}
+
+	uart_send_str("WR-LIST-BEGIN\n");
+	for (;;) {
+		rc = fs_readdir(&dir, &entry);
+		if (rc < 0) {
+			uart_sendf("WR-ERR list-read %d\n", rc);
+			break;
+		}
+		if (entry.name[0] == '\0') {
+			break;
+		}
+		if (entry.type == FS_DIR_ENTRY_DIR) {
+			continue;
+		}
+		if (!is_audio_file(entry.name) ||
+		    wr_recorder_is_current_file(entry.name)) {
+			continue;
+		}
+		uart_sendf("WR-FILE %s %zu\n", entry.name, entry.size);
+		count++;
+	}
+	(void)fs_closedir(&dir);
+	uart_sendf("WR-END %u\n", count);
+}
+
+static void handle_wired_fetch(const char *filename)
+{
+	char path[STORAGE_MAX_PATH];
+	struct fs_file_t file;
+	struct fs_dirent entry;
+	uint8_t chunk[WIRED_CHUNK_BYTES];
+	char encoded[WIRED_B64_BYTES + 1];
+	uint32_t sent = 0;
+
+	int rc = build_path(path, sizeof(path), filename);
+	if (rc < 0) {
+		uart_sendf("WR-ERR bad-name %d\n", rc);
+		return;
+	}
+	if (wr_recorder_is_current_file(filename)) {
+		uart_send_str("WR-ERR active-file\n");
+		return;
+	}
+
+	rc = fs_stat(path, &entry);
+	if (rc < 0) {
+		uart_sendf("WR-ERR stat %d\n", rc);
+		return;
+	}
+
+	fs_file_t_init(&file);
+	rc = fs_open(&file, path, FS_O_READ);
+	if (rc < 0) {
+		uart_sendf("WR-ERR open %d\n", rc);
+		return;
+	}
+
+	uart_sendf("WR-FETCH-BEGIN %s %zu\n", filename, entry.size);
+	for (;;) {
+		const ssize_t rd = fs_read(&file, chunk, sizeof(chunk));
+		if (rd < 0) {
+			uart_sendf("WR-ERR read %zd\n", rd);
+			(void)fs_close(&file);
+			return;
+		}
+		if (rd == 0) {
+			break;
+		}
+		(void)base64_encode(chunk, (size_t)rd, encoded);
+		uart_send_str("WR-DATA ");
+		uart_send_str(encoded);
+		uart_send_str("\n");
+		sent += (uint32_t)rd;
+	}
+	(void)fs_close(&file);
+	uart_sendf("WR-END %u\n", sent);
+}
+
+static void wait_recording_state(bool recording)
+{
+	for (int i = 0; i < 40; i++) {
+		if (wr_recorder_is_recording() == recording) {
+			return;
+		}
+		k_sleep(K_MSEC(50));
+	}
+}
+
+static void handle_line(const char *line)
+{
+	if (strcmp(line, "boot") == 0) {
+		LOG_INF("'boot' received - entering UF2 bootloader");
+		k_sleep(K_MSEC(50));
+		NRF_POWER->GPREGRET = ADAFRUIT_UF2_MAGIC;
+		sys_reboot(SYS_REBOOT_COLD);
+	} else if (strcmp(line, "format-sd") == 0) {
+		LOG_WRN("'format-sd' received - rebooting into SD formatter");
+		k_sleep(K_MSEC(50));
+		NRF_POWER->GPREGRET = WR_BOOT_FORMAT_SD_MAGIC;
+		sys_reboot(SYS_REBOOT_COLD);
+	} else if (strcmp(line, "wr-ping") == 0) {
+		uart_send_str("WR-OK mozzy\n");
+	} else if (strcmp(line, "wr-pause") == 0) {
+		wr_recorder_pause();
+		wait_recording_state(false);
+		uart_send_str(wr_recorder_is_recording() ?
+			"WR-ERR pause-timeout\n" : "WR-OK paused\n");
+	} else if (strcmp(line, "wr-resume") == 0) {
+		wr_recorder_resume();
+		wait_recording_state(true);
+		uart_send_str(wr_recorder_is_recording() ?
+			"WR-OK recording\n" : "WR-ERR resume-timeout\n");
+	} else if (strcmp(line, "wr-list") == 0) {
+		handle_wired_list();
+	} else if (strncmp(line, "wr-fetch ", 9) == 0) {
+		handle_wired_fetch(&line[9]);
+	}
+}
+
+static void boot_cmd_entry(void *arg1, void *arg2, void *arg3)
+{
+	ARG_UNUSED(arg1);
+	ARG_UNUSED(arg2);
+	ARG_UNUSED(arg3);
+
+	char line[BOOT_RX_BUF_LEN];
+	for (;;) {
+		(void)k_msgq_get(&boot_cmd_queue, line, K_FOREVER);
+		handle_line(line);
+	}
+}
 
 static void boot_cmd_uart_cb(const struct device *dev, void *user_data)
 {
@@ -49,17 +307,8 @@ static void boot_cmd_uart_cb(const struct device *dev, void *user_data)
 
 		if (c == '\n' || c == '\r') {
 			rx_buf[rx_idx] = '\0';
-			if (strcmp(rx_buf, "boot") == 0) {
-				LOG_INF("'boot' received — entering UF2 bootloader");
-				/* Let the LOG_INF flush before USB session dies. */
-				k_sleep(K_MSEC(50));
-				NRF_POWER->GPREGRET = ADAFRUIT_UF2_MAGIC;
-				sys_reboot(SYS_REBOOT_COLD);
-			} else if (strcmp(rx_buf, "format-sd") == 0) {
-				LOG_WRN("'format-sd' received - rebooting into SD formatter");
-				k_sleep(K_MSEC(50));
-				NRF_POWER->GPREGRET = WR_BOOT_FORMAT_SD_MAGIC;
-				sys_reboot(SYS_REBOOT_COLD);
+			if (rx_idx > 0U) {
+				(void)k_msgq_put(&boot_cmd_queue, rx_buf, K_NO_WAIT);
 			}
 			rx_idx = 0;
 		} else if (rx_idx < (BOOT_RX_BUF_LEN - 1)) {
@@ -77,12 +326,20 @@ int wr_boot_cmd_init(void)
 		LOG_WRN("console UART not ready; boot-listener inactive");
 		return -ENODEV;
 	}
+	console_uart = console;
+	if (!boot_cmd_thread_started) {
+		k_thread_create(&boot_cmd_thread, boot_cmd_stack,
+				K_THREAD_STACK_SIZEOF(boot_cmd_stack),
+				boot_cmd_entry, NULL, NULL, NULL,
+				BOOT_CMD_PRIORITY, 0, K_NO_WAIT);
+		boot_cmd_thread_started = true;
+	}
 	int rc = uart_irq_callback_user_data_set(console, boot_cmd_uart_cb, NULL);
 	if (rc) {
 		LOG_WRN("uart_irq_callback_user_data_set: %d", rc);
 		return rc;
 	}
 	uart_irq_rx_enable(console);
-	LOG_INF("boot-cmd listener armed (send 'boot\\n' to trigger UF2 entry)");
+	LOG_INF("USB command listener armed (boot/format-sd/wr-pause/wr-list/wr-fetch)");
 	return 0;
 }

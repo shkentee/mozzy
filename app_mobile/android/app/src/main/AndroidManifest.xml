@@ -24,6 +24,7 @@
 
     <!-- Internet for Google Drive upload -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <application
         android:label="mojio"

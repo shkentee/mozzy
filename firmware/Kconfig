@@ -20,4 +20,11 @@ config WR_WDT_TIMEOUT_MS
 	  Timeout in milliseconds for the kernel watchdog. The main loop
 	  must call wdt_feed() faster than this or the SoC resets.
 
+config WR_FORCE_FORMAT_SD_ON_BOOT
+	bool "Force destructive SD format on boot"
+	default n
+	help
+	  Development/service option. When enabled, the device formats the SD
+	  card at boot without waiting for a runtime command.
+
 endmenu

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,7 +45,7 @@ class DevicePage extends StatefulWidget {
   State<DevicePage> createState() => _DevicePageState();
 }
 
-class _DevicePageState extends State<DevicePage> {
+class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
   String _status = 'connecting…';
   int _packets = 0;
   int _savedBytes = 0;
@@ -60,17 +62,22 @@ class _DevicePageState extends State<DevicePage> {
   String? _syncStatus; // last SD-sync event, shown in the UI
   WrSyncProgress? _syncProg; // live backlog / pull progress, shown in the UI
   WrUploadStatus? _driveStatus; // Drive upload queue state
+  bool _serviceHandoffActive = false;
+  bool _serviceHandoffBusy = false;
 
   WrDriveUploader get _uploader => widget.uploaderOverride ?? WrDriveUploader();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.device.state.listen((s) {
       if (!mounted) return;
       setState(() => _status = s.name);
       if (s == BluetoothConnectionState.disconnected) {
-        WrForegroundService.stop().ignore();
+        if (!_serviceHandoffActive) {
+          WrForegroundService.stop().ignore();
+        }
         _sdSync?.stop();
       }
     });
@@ -104,6 +111,69 @@ class _DevicePageState extends State<DevicePage> {
       });
     });
     _init();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state.name == 'hidden') {
+      unawaited(_handoffSyncToService());
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(_resumeSyncFromService());
+    }
+  }
+
+  Future<void> _handoffSyncToService() async {
+    if (_serviceHandoffBusy ||
+        _serviceHandoffActive ||
+        _status != 'connected') {
+      return;
+    }
+    _serviceHandoffBusy = true;
+    _serviceHandoffActive = true;
+    if (mounted) {
+      setState(() => _syncStatus = 'バックグラウンド同期へ引き継ぎ中');
+    }
+    try {
+      await WrForegroundService.start(widget.device.name);
+      await _sdSync?.dispose();
+      _sdSync = null;
+      await widget.device.disconnect();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await WrForegroundService.startBackgroundSync(
+        deviceId: widget.device.id,
+        deviceName: widget.device.name,
+      );
+      if (mounted) {
+        setState(() {
+          _status = 'background';
+          _syncStatus = 'バックグラウンド同期中';
+        });
+      }
+    } catch (e) {
+      _serviceHandoffActive = false;
+      if (mounted) setState(() => _syncStatus = 'バックグラウンド同期エラー: $e');
+    } finally {
+      _serviceHandoffBusy = false;
+    }
+  }
+
+  Future<void> _resumeSyncFromService() async {
+    if (!_serviceHandoffActive || _serviceHandoffBusy) return;
+    _serviceHandoffBusy = true;
+    if (mounted) setState(() => _status = 'connecting…');
+    try {
+      await WrForegroundService.stopBackgroundSync();
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      await WrForegroundService.stop();
+      _serviceHandoffActive = false;
+      await _connect();
+    } catch (e) {
+      if (mounted) setState(() => _status = 'error: $e');
+    } finally {
+      _serviceHandoffBusy = false;
+    }
   }
 
   Future<void> _init() async {
@@ -177,10 +247,10 @@ class _DevicePageState extends State<DevicePage> {
   String _pullModeText() => switch (_schedule.mode) {
         SyncMode.manual => '手動',
         SyncMode.scheduledTime =>
-          'タイマー：毎日 ${SyncSchedule.fmtHm(_schedule.timeMinutes)}',
+          'タイマー：毎日 ${SyncSchedule.fmtHm(_schedule.timeMinutes)}（BG対応）',
         SyncMode.intervalWindow =>
-          'タイマー：${SyncSchedule.fmtHm(_schedule.windowStartMin)}〜${SyncSchedule.fmtHm(_schedule.windowEndMin)} / ${_schedule.intervalMin}分間隔',
-        SyncMode.continuous => '自動：常時',
+          'タイマー：${SyncSchedule.fmtHm(_schedule.windowStartMin)}〜${SyncSchedule.fmtHm(_schedule.windowEndMin)} / ${_schedule.intervalMin}分間隔（BG対応）',
+        SyncMode.continuous => '自動：常時（BG対応）',
       };
 
   Widget _sectionTitle({
@@ -230,6 +300,30 @@ class _DevicePageState extends State<DevicePage> {
     );
   }
 
+  Widget _statusNote(String text) {
+    final cs = Theme.of(context).colorScheme;
+    final fg = cs.onSurface.withOpacity(0.72);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: cs.secondary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: cs.secondary.withOpacity(0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 16, color: cs.secondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: TextStyle(fontSize: 12, color: fg)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSyncStatus() {
     final p = _syncProg;
     final done = p?.synced ?? 0;
@@ -252,6 +346,9 @@ class _DevicePageState extends State<DevicePage> {
         ),
         const SizedBox(height: 12),
         _buildProgressBlock(done: done, total: total, status: status),
+        const SizedBox(height: 12),
+        _statusNote(
+            '画面OFFやアプリ切替時はForeground Serviceへ引き継いで吸出しを続けます。OSに止められた場合は再度アプリを開くと復帰します。'),
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
@@ -285,7 +382,9 @@ class _DevicePageState extends State<DevicePage> {
                     ? '手動待ち（未アップロード ${us.pendingFiles}件）'
                     : us.pendingFiles > 0
                         ? '待機中（未アップロード ${us.pendingFiles}件）'
-                        : '未アップロードなし';
+                        : us.uploadedChunks > 0
+                            ? '送信待ちなし（今回 ${us.uploadedChunks}件送信）'
+                            : '送信待ちなし';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -293,10 +392,12 @@ class _DevicePageState extends State<DevicePage> {
         _sectionTitle(
           icon: Icons.cloud_upload_outlined,
           title: 'Driveアップロード',
-          mode: auto ? '自動' : '手動',
+          mode: auto ? '自動（BG対応）' : '手動',
         ),
         const SizedBox(height: 12),
         _buildProgressBlock(done: done, total: total, status: status),
+        const SizedBox(height: 12),
+        _statusNote('「送信待ちなし」はスマホ内キューが空という意味です。Drive上の再確認は録音一覧で確認してください。'),
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
@@ -359,8 +460,11 @@ class _DevicePageState extends State<DevicePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sdSync?.dispose();
-    WrForegroundService.stop().ignore();
+    if (!_serviceHandoffActive) {
+      WrForegroundService.stop().ignore();
+    }
     widget.device.dispose();
     super.dispose();
   }

@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/wr_ble_device.dart';
 import '../services/wr_ble_scanner.dart';
 import 'device_page.dart';
+import 'wired_rescue_page.dart';
 
 /// SharedPreferences key used to persist / retrieve the last-connected device.
 const _kLastDeviceId = 'wr_last_device_id';
@@ -92,6 +93,7 @@ class _ScanPageState extends State<ScanPage> {
 
     try {
       await _scanner.start();
+      _tryAutoConnect(_results);
     } catch (e) {
       setState(() {
         _autoConnectId = null;
@@ -179,6 +181,15 @@ class _ScanPageState extends State<ScanPage> {
       appBar: AppBar(
         title: const Text('mojio'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.usb),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const WiredRescuePage()),
+              );
+            },
+            tooltip: 'USB救出',
+          ),
           IconButton(
             icon: Icon(_scanner.isScanning ? Icons.stop : Icons.search),
             onPressed: _scan,
