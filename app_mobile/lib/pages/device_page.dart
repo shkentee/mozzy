@@ -384,6 +384,11 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
     final auto = us?.autoUpload ?? _driveUploadAuto;
     final done = us?.completedBytes ?? 0;
     final total = us?.totalBytes ?? 0;
+    final uploadDetail = us?.lastError != null
+        ? '最終エラー：${us!.lastError}'
+        : us?.lastUploadedFile != null
+            ? '最終送信：${us!.lastUploadedFile}'
+            : null;
     final status = us == null
         ? '待機中'
         : us.blockedNoWifi
@@ -409,6 +414,10 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
         const SizedBox(height: 12),
         _buildProgressBlock(done: done, total: total, status: status),
         const SizedBox(height: 12),
+        if (uploadDetail != null) ...[
+          _statusNote(uploadDetail),
+          const SizedBox(height: 12),
+        ],
         _statusNote('「送信待ちなし」はスマホ内キューが空という意味です。Drive上の再確認は録音一覧で確認してください。'),
         const SizedBox(height: 12),
         SizedBox(

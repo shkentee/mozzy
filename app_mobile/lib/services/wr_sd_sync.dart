@@ -31,6 +31,8 @@ class WrUploadStatus {
     required this.waitingForManual,
     required this.uploadedChunks,
     this.currentFile,
+    this.lastUploadedFile,
+    this.lastError,
   });
 
   final int pendingFiles; // chunks waiting in the outbox
@@ -43,6 +45,8 @@ class WrUploadStatus {
   final bool waitingForManual; // manual mode with queued files waiting
   final int uploadedChunks; // chunks uploaded this app run
   final String? currentFile; // chunk being uploaded now
+  final String? lastUploadedFile; // most recent successfully uploaded chunk
+  final String? lastError; // most recent upload error, if any
 
   double get passPct => totalBytes <= 0 ? 1 : completedBytes / totalBytes;
 
@@ -132,6 +136,8 @@ class WrSdSync {
   bool _blockedNoWifi = false;
   bool _waitingForManualUpload = false;
   String? _curUploadName;
+  String? _lastUploadedName;
+  String? _lastUploadError;
   int _uploadDoneBytes = 0;
   int _uploadTotalBytes = 0;
 
@@ -341,6 +347,8 @@ class WrSdSync {
         waitingForManual: _waitingForManualUpload,
         uploadedChunks: uploadedChunks,
         currentFile: _curUploadName,
+        lastUploadedFile: _lastUploadedName,
+        lastError: _lastUploadError,
       ));
     } catch (_) {}
   }
@@ -451,12 +459,18 @@ class WrSdSync {
           final id = await uploader.uploadIfNew(f, name);
           if (id != null) {
             uploadedChunks++;
+            _lastUploadedName = name;
+            _lastUploadError = null;
             if (!_events.isClosed) _events.add('uploaded $name');
+          } else {
+            _lastUploadedName = name;
+            _lastUploadError = null;
           }
           await f.delete();
           _uploadDoneBytes += item.length;
           await _emitUploadStatus();
         } catch (e) {
+          _lastUploadError = '$name: $e';
           if (!_events.isClosed) _events.add('upload error $name: $e');
           await Future<void>.delayed(const Duration(seconds: 5));
           break;
