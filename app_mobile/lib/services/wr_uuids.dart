@@ -33,6 +33,12 @@ class WrUuids {
   static const String rawGainService = '19b10007-e8f2-537e-4f6c-d104768a1214';
   static const String rawGainChar = '19b10007-e8f2-537e-4f6c-d104768a1214';
 
+  // mojizo LED settings: READ/WRITE 4 bytes
+  // [mode: 0 off / 1 breathe, brightnessPct: 1..30, intervalSec: 1..10, reserved].
+  static const String ledSettingsService =
+      '19b10013-e8f2-537e-4f6c-d104768a1214';
+  static const String ledSettingsChar = '19b10013-e8f2-537e-4f6c-d104768a1214';
+
   // Storage data stream service (chunk fetch).
   static const String storageService = '30295780-4301-eabd-2904-2849adfeae43';
   static const String storageStream = '30295781-4301-eabd-2904-2849adfeae43';

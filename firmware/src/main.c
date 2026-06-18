@@ -26,7 +26,6 @@
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
-#define STATUS_FLASH_PERIOD_MS 4000
 #define SD_THREAD_STACK_SIZE 4096
 #define SD_THREAD_PRIORITY 7
 
@@ -264,7 +263,7 @@ int main(void)
 		LOG_DBG("alive tick=%u recording=%d", tick,
 			(int)wr_recorder_is_recording());
 		tick++;
-		k_msleep(STATUS_FLASH_PERIOD_MS);
+		k_msleep(wr_led_status_interval_ms());
 	}
 	return 0;
 }

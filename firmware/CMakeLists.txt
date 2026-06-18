@@ -23,6 +23,7 @@ target_sources(app PRIVATE
     src/wr_rec_control.c
     src/wr_button.c
     src/wr_gain_control.c
+    src/wr_led_control.c
 )
 target_include_directories(app PRIVATE src src/lib/opus-1.2.1)
 target_link_libraries(app PRIVATE opus_codec)

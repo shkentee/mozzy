@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/wr_ble_device.dart';
 import '../services/wr_drive_uploader.dart';
 import '../services/wr_foreground_service.dart';
+import '../services/wr_led_settings.dart';
 import '../services/wr_sd_sync.dart';
 import '../services/wr_sync_schedule.dart';
 import '../widgets/brand.dart';
@@ -62,6 +63,8 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
   String? _syncStatus; // last SD-sync event, shown in the UI
   WrSyncProgress? _syncProg; // live backlog / pull progress, shown in the UI
   WrUploadStatus? _driveStatus; // Drive upload queue state
+  WrLedSettings _ledSettings = WrLedSettings.defaults;
+  String? _ledStatus;
   bool _serviceHandoffActive = false;
   bool _serviceHandoffBusy = false;
 
@@ -178,6 +181,7 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     await _loadSyncSettings();
+    await _loadLedSettings();
     await _connect();
   }
 
@@ -189,6 +193,12 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
       _driveUploadAuto = prefs.getBool(kDriveUploadAutoKey) ?? true;
       _schedule = schedule;
     });
+  }
+
+  Future<void> _loadLedSettings() async {
+    final settings = await WrLedSettings.load();
+    if (!mounted) return;
+    setState(() => _ledSettings = settings);
   }
 
   Future<void> _connect() async {
@@ -204,12 +214,29 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
       // Reflect the device's current mic gain (if supported).
       final gain = await widget.device.readMicGainLevel();
       if (mounted) setState(() => _micGainLevel = gain);
+      await _applyLedSettings();
       // Start SD pull + Drive upload service. Modes decide whether each side
       // runs automatically or waits for a card button.
       _startSdSync();
     } catch (e) {
       if (!mounted) return;
       setState(() => _status = 'error: $e');
+    }
+  }
+
+  Future<void> _applyLedSettings() async {
+    if (_status != 'connected') return;
+    try {
+      final ok = await widget.device.setLedSettings(_ledSettings);
+      if (!mounted) return;
+      setState(() {
+        _ledStatus = ok ? 'デバイスへ反映済み' : 'このファームはLED設定に未対応です';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _ledStatus = 'LED設定の反映に失敗しました: $e';
+      });
     }
   }
 
@@ -437,6 +464,41 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildLedStatus() {
+    final enabled = _ledSettings.enabled;
+    final status = enabled
+        ? '明るさ ${_ledSettings.brightnessPct}% / ${_ledSettings.intervalSec}秒間隔'
+        : 'オフ';
+    final detail = _ledStatus ??
+        (_status == 'connected' ? '接続時に自動で反映します' : 'デバイス接続後に反映します');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          icon: Icons.lightbulb_outline,
+          title: 'デバイスLED',
+          mode: enabled ? 'オン' : 'オフ',
+        ),
+        const SizedBox(height: 12),
+        _buildProgressBlock(
+            done: enabled ? _ledSettings.brightnessPct : 0,
+            total: 30,
+            status: status),
+        const SizedBox(height: 10),
+        _statusNote(detail),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton.icon(
+            onPressed: _status == 'connected' ? _applyLedSettings : null,
+            icon: const Icon(Icons.send_outlined),
+            label: const Text('設定を反映'),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _sleepDevice() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -594,6 +656,8 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
               );
               if (mounted) {
                 await _loadSyncSettings();
+                await _loadLedSettings();
+                await _applyLedSettings();
                 _startSdSync();
               }
             },
@@ -801,6 +865,8 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
               ),
             ),
           ],
+          const SizedBox(height: 14),
+          _card(_buildLedStatus()),
           const SizedBox(height: 14),
           _card(_buildSyncStatus()),
           const SizedBox(height: 14),

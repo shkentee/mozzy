@@ -8,6 +8,7 @@ import 'package:opus_dart/opus_dart.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'wr_audio_packet.dart';
+import 'wr_led_settings.dart';
 import 'wr_packet_sink.dart';
 import 'wr_storage_client.dart';
 import 'wr_uuids.dart';
@@ -371,6 +372,39 @@ class WrBleDevice {
     final c = _recControlChar();
     if (c == null) return;
     await c.write([on ? 1 : 0], withoutResponse: false);
+  }
+
+  BluetoothCharacteristic? _ledSettingsChar() {
+    final svcs = _discoveredServices;
+    if (svcs == null) return null;
+    try {
+      final svc = svcs.firstWhere(
+        (s) => s.serviceUuid == Guid(WrUuids.ledSettingsService),
+      );
+      return svc.characteristics.firstWhere(
+        (c) => c.characteristicUuid == Guid(WrUuids.ledSettingsChar),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<WrLedSettings?> readLedSettings() async {
+    final c = _ledSettingsChar();
+    if (c == null) return null;
+    try {
+      final v = await c.read();
+      return WrLedSettings.fromPayload(v);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> setLedSettings(WrLedSettings settings) async {
+    final c = _ledSettingsChar();
+    if (c == null) return false;
+    await c.write(settings.toPayload(), withoutResponse: false);
+    return true;
   }
 
   static int _rawPdmGainToLevel(int rawGain) {

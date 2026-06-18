@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart' show themeModeNotifier, setThemeMode, themeModeLabelJa;
 import '../services/wr_drive_uploader.dart';
+import '../services/wr_led_settings.dart';
 import '../services/wr_sd_sync.dart' show kDriveUploadAutoKey, kWifiOnlyKey;
 import '../services/wr_sync_schedule.dart';
 
@@ -34,6 +35,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _loadingEmail = true;
   bool _busy = false;
   SyncSchedule _schedule = const SyncSchedule();
+  WrLedSettings _ledSettings = WrLedSettings.defaults;
 
   @override
   void initState() {
@@ -48,6 +50,16 @@ class _SettingsPageState extends State<SettingsPage> {
         _driveUploadAuto = prefs.getBool(kDriveUploadAutoKey) ?? true;
         _wifiOnly = prefs.getBool(kWifiOnlyKey) ?? false;
         _folderName = prefs.getString(_kFolderKey) ?? _kDefaultFolder;
+        _ledSettings = WrLedSettings(
+          enabled:
+              prefs.getBool(kLedEnabledKey) ?? WrLedSettings.defaults.enabled,
+          brightnessPct: (prefs.getInt(kLedBrightnessKey) ??
+                  WrLedSettings.defaults.brightnessPct)
+              .clamp(1, 30),
+          intervalSec: (prefs.getInt(kLedIntervalKey) ??
+                  WrLedSettings.defaults.intervalSec)
+              .clamp(1, 10),
+        );
       });
     }
     final sched = await SyncSchedule.load();
@@ -113,6 +125,11 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(kWifiOnlyKey, v);
     if (mounted) setState(() => _wifiOnly = v);
+  }
+
+  Future<void> _saveLedSettings(WrLedSettings settings) async {
+    await settings.save();
+    if (mounted) setState(() => _ledSettings = settings);
   }
 
   Future<void> _saveSchedule(SyncSchedule s) async {
@@ -237,6 +254,71 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: const Text('モバイルデータではアップロードしない'),
               value: _wifiOnly,
               onChanged: _busy ? null : _setWifiOnly,
+            ),
+            const Divider(),
+            // ---- デバイスLED ----
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text('デバイスLED',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.lightbulb_outline),
+              title: const Text('ステータスLED'),
+              subtitle: const Text('録音中は白、停止中は緑で光ります'),
+              value: _ledSettings.enabled,
+              onChanged: _busy
+                  ? null
+                  : (v) => _saveLedSettings(_ledSettings.copyWith(enabled: v)),
+            ),
+            ListTile(
+              enabled: _ledSettings.enabled,
+              leading: const Icon(Icons.wb_sunny_outlined),
+              title: const Text('明るさ'),
+              subtitle: Slider(
+                min: 1,
+                max: 30,
+                divisions: 29,
+                value: _ledSettings.brightnessPct.toDouble(),
+                label: '${_ledSettings.brightnessPct}%',
+                onChanged: !_ledSettings.enabled || _busy
+                    ? null
+                    : (v) => setState(() => _ledSettings =
+                        _ledSettings.copyWith(brightnessPct: v.round())),
+                onChangeEnd: !_ledSettings.enabled || _busy
+                    ? null
+                    : (v) => _saveLedSettings(
+                        _ledSettings.copyWith(brightnessPct: v.round())),
+              ),
+              trailing: Text('${_ledSettings.brightnessPct}%'),
+            ),
+            ListTile(
+              enabled: _ledSettings.enabled,
+              leading: const Icon(Icons.av_timer),
+              title: const Text('光る間隔'),
+              subtitle: Slider(
+                min: 1,
+                max: 10,
+                divisions: 9,
+                value: _ledSettings.intervalSec.toDouble(),
+                label: '${_ledSettings.intervalSec}秒',
+                onChanged: !_ledSettings.enabled || _busy
+                    ? null
+                    : (v) => setState(() => _ledSettings =
+                        _ledSettings.copyWith(intervalSec: v.round())),
+                onChangeEnd: !_ledSettings.enabled || _busy
+                    ? null
+                    : (v) => _saveLedSettings(
+                        _ledSettings.copyWith(intervalSec: v.round())),
+              ),
+              trailing: Text('${_ledSettings.intervalSec}秒'),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(72, 0, 16, 12),
+              child: Text(
+                '次にデバイスへ接続したとき、またはデバイス画面へ戻ったときに反映します。',
+                style: TextStyle(fontSize: 12),
+              ),
             ),
             const Divider(),
             // ---- 自動吸出し（タイマー） ----

@@ -1,15 +1,21 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mojio/pages/device_page.dart';
 import 'package:mojio/pages/drive_files_page.dart';
+import 'package:mojio/pages/recordings_page.dart';
+import 'package:mojio/pages/settings_page.dart';
 import 'package:mojio/pages/storage_page.dart';
+import 'package:mojio/pages/transcripts_page.dart';
 import 'package:mojio/services/wr_ble_device.dart';
 import 'package:mojio/services/wr_drive_uploader.dart';
+import 'package:mojio/services/wr_led_settings.dart';
 
 /// Mocktail mock of the [WrBleDevice] wrapper. Mocking the wrapper —
 /// rather than [BluetoothDevice] — means the widget test never reaches
@@ -19,6 +25,18 @@ class _MockDevice extends Mock implements WrBleDevice {}
 /// Mocktail mock of [WrDriveUploader] — used to inject into [DevicePage] so
 /// the [DriveFilesPage] path never tries to reach Google Sign-In.
 class _MockUploader extends Mock implements WrDriveUploader {}
+
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.root);
+
+  final Directory root;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root.path;
+
+  @override
+  Future<String?> getTemporaryPath() async => root.path;
+}
 
 void main() {
   late _MockDevice device;
@@ -30,6 +48,11 @@ void main() {
   late StreamController<double> audioCtrl;
   late Completer<void> connectCompleter;
   late _MockUploader mockUploader;
+  late Directory tempDir;
+
+  setUpAll(() {
+    registerFallbackValue(WrLedSettings.defaults);
+  });
 
   setUp(() {
     // Stub SharedPreferences so DevicePage._connect() (which saves the device
@@ -44,6 +67,8 @@ void main() {
     audioCtrl = StreamController<double>.broadcast();
     connectCompleter = Completer<void>();
     mockUploader = _MockUploader();
+    tempDir = Directory.systemTemp.createTempSync('mozzy_device_page_test_');
+    PathProviderPlatform.instance = _FakePathProvider(tempDir);
 
     when(() => device.name).thenReturn('Omi DK1');
     when(() => device.id).thenReturn('aa:bb:cc:dd:ee:01');
@@ -59,11 +84,21 @@ void main() {
     when(() => device.connect()).thenAnswer((_) => connectCompleter.future);
     when(() => device.readRecordingState()).thenAnswer((_) async => null);
     when(() => device.readMicGainLevel()).thenAnswer((_) async => null);
+    when(() => device.setLedSettings(any())).thenAnswer((_) async => true);
     when(() => device.dispose()).thenAnswer((_) async {});
     // StoragePage.initState calls openStorageSession(); null = service not found.
     when(() => device.openStorageSession()).thenAnswer((_) async => null);
     // DriveFilesPage.initState calls listFiles().
     when(() => mockUploader.listFiles()).thenAnswer((_) async => []);
+    when(() => mockUploader.listTranscripts()).thenAnswer((_) async => [
+          WrTranscriptFile(
+            id: 'transcript-1',
+            name: '2026-06-18.md',
+            modifiedTime: DateTime(2026, 6, 18, 7, 0),
+          ),
+        ]);
+    when(() => mockUploader.currentEmail())
+        .thenAnswer((_) async => 'kn.sol.levante@gmail.com');
   });
 
   tearDown(() async {
@@ -74,6 +109,7 @@ void main() {
     await lostCtrl.close();
     await batteryCtrl.close();
     await audioCtrl.close();
+    if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
   /// Default helper — no uploader override (used by tests that don't navigate
@@ -142,6 +178,17 @@ void main() {
     bytesCtrl.add(2 * 1024 * 1024);
     await tester.pumpAndSettle();
     expect(find.textContaining('保存 2.0MB'), findsOneWidget);
+  });
+
+  testWidgets('shows LED settings status card', (tester) async {
+    await tester.pumpWidget(hostedDevicePage());
+
+    connectCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('デバイスLED'), findsOneWidget);
+    expect(find.textContaining('明るさ'), findsOneWidget);
+    expect(find.text('設定を反映'), findsOneWidget);
   });
 
   test('mic gain labels match the OMI dB table', () {
@@ -223,5 +270,48 @@ void main() {
 
     // DriveFilesPage should now be visible.
     expect(find.byType(DriveFilesPage), findsOneWidget);
+  });
+
+  testWidgets('recordings button navigates to RecordingsPage', (tester) async {
+    await tester.pumpWidget(hostedDevicePageWithUploader());
+
+    connectCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Recordings (play)'), findsOneWidget);
+    await tester.tap(find.byTooltip('Recordings (play)'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(find.byType(RecordingsPage), findsOneWidget);
+  });
+
+  testWidgets('transcripts button navigates to TranscriptsPage',
+      (tester) async {
+    await tester.pumpWidget(hostedDevicePageWithUploader());
+
+    connectCompleter.complete();
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.widgetWithIcon(IconButton, Icons.description_outlined));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TranscriptsPage), findsOneWidget);
+    expect(find.text('2026-06-18'), findsOneWidget);
+  });
+
+  testWidgets('settings button navigates to SettingsPage', (tester) async {
+    await tester.pumpWidget(hostedDevicePageWithUploader());
+
+    connectCompleter.complete();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.settings_outlined));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SettingsPage), findsOneWidget);
+    expect(find.text('設定'), findsOneWidget);
+    expect(find.text('kn.sol.levante@gmail.com'), findsOneWidget);
   });
 }

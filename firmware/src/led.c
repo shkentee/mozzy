@@ -14,6 +14,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/util.h>
 
 LOG_MODULE_REGISTER(wr_led, LOG_LEVEL_INF);
 
@@ -34,6 +35,16 @@ static const struct gpio_dt_spec led_blue =
 /* Envelope: quick rise over the first ATTACK_FRAC of the fade, then a smooth
  * (eased) decay — a snappy attack with a sine-like tail. */
 #define FADE_ATTACK_FRAC 0.20f
+
+#define LED_DEFAULT_INTERVAL_SEC 4U
+#define LED_DEFAULT_BRIGHTNESS_PCT FADE_MAX_DUTY_PCT
+#define LED_MAX_BRIGHTNESS_PCT 30U
+
+static struct wr_led_settings led_settings = {
+	.mode = WR_LED_MODE_BREATHE,
+	.brightness_pct = LED_DEFAULT_BRIGHTNESS_PCT,
+	.interval_sec = LED_DEFAULT_INTERVAL_SEC,
+};
 
 int wr_led_init(void)
 {
@@ -82,6 +93,35 @@ void wr_led_green(bool on)
 	(void)gpio_pin_set_dt(&led_green, on ? 1 : 0);
 }
 
+void wr_led_get_settings(struct wr_led_settings *out)
+{
+	if (out == NULL) {
+		return;
+	}
+	*out = led_settings;
+}
+
+void wr_led_apply_settings(uint8_t mode, uint8_t brightness_pct,
+			   uint8_t interval_sec)
+{
+	if (mode != WR_LED_MODE_OFF) {
+		mode = WR_LED_MODE_BREATHE;
+	}
+	led_settings.mode = mode;
+	led_settings.brightness_pct =
+		CLAMP(brightness_pct, 1U, LED_MAX_BRIGHTNESS_PCT);
+	led_settings.interval_sec = CLAMP(interval_sec, 1U, 10U);
+	LOG_INF("LED settings: mode=%u brightness=%u%% interval=%us",
+		(unsigned int)led_settings.mode,
+		(unsigned int)led_settings.brightness_pct,
+		(unsigned int)led_settings.interval_sec);
+}
+
+uint32_t wr_led_status_interval_ms(void)
+{
+	return (uint32_t)led_settings.interval_sec * 1000U;
+}
+
 /* Set the active colour's pins. recording = WHITE (red+green+blue), idle = GREEN. */
 static void flash_pins(bool recording, int on)
 {
@@ -94,6 +134,11 @@ static void flash_pins(bool recording, int on)
 
 void wr_led_dim_flash(bool recording)
 {
+	if (led_settings.mode == WR_LED_MODE_OFF) {
+		flash_pins(true, 0);
+		return;
+	}
+
 	for (int i = 0; i < FADE_CYCLES; i++) {
 		/* Brightness envelope 0..1: quick (linear) rise during the attack,
 		 * then a smooth quadratic ease-out decay (sine-like tail). */
@@ -110,7 +155,7 @@ void wr_led_dim_flash(bool recording)
 			b = k * k;
 		}
 
-		uint32_t on_us = (uint32_t)(b * ((float)FADE_MAX_DUTY_PCT / 100.0f) *
+		uint32_t on_us = (uint32_t)(b * ((float)led_settings.brightness_pct / 100.0f) *
 					    (float)FADE_PERIOD_US);
 
 		if (on_us > FADE_PERIOD_US) {

@@ -101,6 +101,21 @@ void main() {
     expect(find.textContaining('bluetooth off'), findsOneWidget);
   });
 
+  testWidgets('opens Settings from the scan screen app bar', (tester) async {
+    await tester.pumpWidget(hostedScanPage());
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('設定'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('デバイスLED'),
+      400,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(find.text('デバイスLED'), findsOneWidget);
+  });
+
   testWidgets(
       'updates the list when a second batch of results replaces the first',
       (tester) async {

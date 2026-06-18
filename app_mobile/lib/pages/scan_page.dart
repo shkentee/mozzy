@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/wr_ble_device.dart';
 import '../services/wr_ble_scanner.dart';
 import 'device_page.dart';
+import 'settings_page.dart';
 import 'wired_rescue_page.dart';
 
 /// SharedPreferences key used to persist / retrieve the last-connected device.
@@ -185,6 +186,15 @@ class _ScanPageState extends State<ScanPage> {
       appBar: AppBar(
         title: const Text('mojio'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              );
+            },
+            tooltip: 'Settings',
+          ),
           IconButton(
             icon: const Icon(Icons.usb),
             onPressed: () {
