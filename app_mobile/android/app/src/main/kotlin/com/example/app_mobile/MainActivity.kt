@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -43,6 +44,7 @@ class MainActivity : FlutterActivity() {
                         "listFiles" -> withSession { it.listFiles() }
                         "fetchFile" -> fetchFile(call)
                         "diagnoseUsb" -> diagnoseUsb()
+                        "setKeepScreenOn" -> setKeepScreenOn(call)
                         else -> throw IllegalArgumentException("Unknown method ${call.method}")
                     }
                     mainHandler.post { result.success(value) }
@@ -63,6 +65,21 @@ class MainActivity : FlutterActivity() {
         val path = call.argument<String>("path")
             ?: throw WiredUsbException("bad_args", "Missing destination path.")
         return withSession { it.fetchFile(name, File(path)) }
+    }
+
+    private fun setKeepScreenOn(call: MethodCall): Boolean {
+        val enabled = call.argument<Boolean>("enabled") ?: false
+        val latch = CountDownLatch(1)
+        mainHandler.post {
+            if (enabled) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            latch.countDown()
+        }
+        latch.await(5, TimeUnit.SECONDS)
+        return enabled
     }
 
     private fun <T> withSession(block: (CdcSession) -> T): T {
@@ -153,7 +170,7 @@ class MainActivity : FlutterActivity() {
 
         val filter = IntentFilter(action)
         if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             @Suppress("DEPRECATION")
             registerReceiver(receiver, filter)

@@ -49,11 +49,18 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
   @override
   void initState() {
     super.initState();
+    _wired.setKeepScreenOn(true).ignore();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _refresh();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _wired.setKeepScreenOn(false).ignore();
+    super.dispose();
   }
 
   Future<void> _refresh() async {

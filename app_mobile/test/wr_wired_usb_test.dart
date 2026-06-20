@@ -45,6 +45,11 @@ class _FakeWiredUsb extends WrWiredUsb {
   }
 
   @override
+  Future<void> setKeepScreenOn(bool enabled) async {
+    calls.add(enabled ? 'keepScreenOn' : 'keepScreenOff');
+  }
+
+  @override
   Future<int> fetchAndQueueAll({
     WrUploadOutbox outbox = const WrUploadOutbox(),
     void Function(String message)? onProgress,
@@ -126,7 +131,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(calls, ['prepareUsb', 'ping', 'listFiles']);
+    expect(calls, ['setKeepScreenOn', 'prepareUsb', 'ping', 'listFiles']);
     expect(find.text('接続OK（mozzy）。1件見つかりました'), findsOneWidget);
     expect(find.text('rec_0001.opus_sd'), findsOneWidget);
   });
