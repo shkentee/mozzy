@@ -32,6 +32,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
   bool _busy = false;
   bool _exclusiveUsbReady = false;
   String _status = 'USB-Cでスマホとデバイスをつないでから確認してください';
+  String? _usbDiagnostics;
   List<WrWiredFile> _files = const [];
 
   String _fmtMB(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
@@ -65,6 +66,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     setState(() {
       _busy = true;
       _status = 'バックグラウンド同期を停止中...';
+      _usbDiagnostics = null;
     });
     try {
       await _prepareExclusiveUsb();
@@ -81,7 +83,15 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _status = 'USB確認エラー: $e');
+      var diagnostics = '';
+      try {
+        diagnostics = await _wired.diagnoseUsb();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _status = 'USB確認エラー: $e';
+        _usbDiagnostics = diagnostics.isEmpty ? null : diagnostics;
+      });
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -176,6 +186,13 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
             _status,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
+          if (_usbDiagnostics != null) ...[
+            const SizedBox(height: 12),
+            SelectableText(
+              _usbDiagnostics!,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           const SizedBox(height: 12),
           if (_busy) const LinearProgressIndicator(),
           const SizedBox(height: 16),

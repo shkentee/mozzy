@@ -42,6 +42,7 @@ class MainActivity : FlutterActivity() {
                         "resumeRecording" -> withSession { it.resumeRecording() }
                         "listFiles" -> withSession { it.listFiles() }
                         "fetchFile" -> fetchFile(call)
+                        "diagnoseUsb" -> diagnoseUsb()
                         else -> throw IllegalArgumentException("Unknown method ${call.method}")
                     }
                     mainHandler.post { result.success(value) }
@@ -67,7 +68,10 @@ class MainActivity : FlutterActivity() {
     private fun <T> withSession(block: (CdcSession) -> T): T {
         val manager = getSystemService(Context.USB_SERVICE) as UsbManager
         val device = manager.deviceList.values.firstOrNull { CdcSession.canUse(it) }
-            ?: throw WiredUsbException("no_usb_device", "Mozzy USB device was not found.")
+            ?: throw WiredUsbException(
+                "no_usb_device",
+                "Mozzy USB device was not found.\n${usbDiagnostics(manager)}"
+            )
 
         if (!manager.hasPermission(device)) {
             if (!requestUsbPermission(manager, device)) {
@@ -83,6 +87,47 @@ class MainActivity : FlutterActivity() {
             block(session)
         } finally {
             session.close()
+        }
+    }
+
+    private fun diagnoseUsb(): String {
+        val manager = getSystemService(Context.USB_SERVICE) as UsbManager
+        return usbDiagnostics(manager)
+    }
+
+    private fun usbDiagnostics(manager: UsbManager): String {
+        val devices = manager.deviceList.values.toList()
+        if (devices.isEmpty()) {
+            return "Androidから見えるUSB機器はありません。スマホがUSBホストになっていない、ケーブルが充電専用、またはデバイス側USBが起動していない可能性があります。"
+        }
+
+        return buildString {
+            append("Androidから見えるUSB機器: ${devices.size}件")
+            devices.forEachIndexed { index, device ->
+                append("\n")
+                append(index + 1)
+                append(". VID=")
+                append("%04X".format(device.vendorId))
+                append(" PID=")
+                append("%04X".format(device.productId))
+                append(" class=")
+                append(device.deviceClass)
+                append(" ifaces=")
+                append(device.interfaceCount)
+                append(" cdc=")
+                append(CdcSession.canUse(device))
+                for (i in 0 until device.interfaceCount) {
+                    val iface = device.getInterface(i)
+                    append("\n   iface ")
+                    append(i)
+                    append(": class=")
+                    append(iface.interfaceClass)
+                    append(" subclass=")
+                    append(iface.interfaceSubclass)
+                    append(" endpoints=")
+                    append(iface.endpointCount)
+                }
+            }
         }
     }
 

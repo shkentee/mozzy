@@ -7,10 +7,20 @@
 #define WR_LED_MODE_OFF     0U
 #define WR_LED_MODE_BREATHE 1U
 
+#define WR_LED_COLOR_GREEN   1U
+#define WR_LED_COLOR_WHITE   2U
+#define WR_LED_COLOR_BLUE    3U
+#define WR_LED_COLOR_RED     4U
+#define WR_LED_COLOR_CYAN    5U
+#define WR_LED_COLOR_AMBER   6U
+#define WR_LED_COLOR_MAGENTA 7U
+
 struct wr_led_settings {
 	uint8_t mode;
 	uint8_t brightness_pct;
 	uint8_t interval_sec;
+	uint8_t recording_color;
+	uint8_t idle_color;
 };
 
 /* Initialise the status LEDs (red = led0/P0.26, green = led1/P0.30). */
@@ -29,7 +39,8 @@ void wr_led_green(bool on);
  * 4 second interval. */
 void wr_led_get_settings(struct wr_led_settings *out);
 void wr_led_apply_settings(uint8_t mode, uint8_t brightness_pct,
-			   uint8_t interval_sec);
+			   uint8_t interval_sec, uint8_t recording_color,
+			   uint8_t idle_color);
 uint32_t wr_led_status_interval_ms(void);
 
 /* A dim, fade-in/out "breathing" pulse used as the status indicator:

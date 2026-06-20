@@ -2,11 +2,13 @@
  * LED settings GATT characteristic.
  *
  * Service / Characteristic UUID: 19B10013-E8F2-537E-4F6C-D104768A1214
- * READ/WRITE 4 bytes:
+ * READ/WRITE 6 bytes:
  *   [0] mode: 0=off, 1=breathe
  *   [1] brightness peak duty percent: 1..30
  *   [2] interval seconds: 1..10
- *   [3] reserved, currently 0
+ *   [3] recording colour
+ *   [4] idle colour
+ *   [5] reserved, currently 0
  */
 
 #include <stdint.h>
@@ -28,7 +30,7 @@ static struct bt_uuid_128 wr_led_settings_svc_uuid =
 static struct bt_uuid_128 wr_led_settings_char_uuid =
 	BT_UUID_INIT_128(WR_LED_SETTINGS_UUID);
 
-static void settings_to_payload(uint8_t out[4])
+static void settings_to_payload(uint8_t out[6])
 {
 	struct wr_led_settings s;
 
@@ -36,14 +38,16 @@ static void settings_to_payload(uint8_t out[4])
 	out[0] = s.mode;
 	out[1] = s.brightness_pct;
 	out[2] = s.interval_sec;
-	out[3] = 0U;
+	out[3] = s.recording_color;
+	out[4] = s.idle_color;
+	out[5] = 0U;
 }
 
 static ssize_t wr_led_settings_read(struct bt_conn *conn,
 				    const struct bt_gatt_attr *attr, void *buf,
 				    uint16_t len, uint16_t offset)
 {
-	uint8_t payload[4];
+	uint8_t payload[6];
 
 	ARG_UNUSED(attr);
 	settings_to_payload(payload);
@@ -66,8 +70,12 @@ static ssize_t wr_led_settings_write(struct bt_conn *conn,
 	}
 
 	const uint8_t *payload = (const uint8_t *)buf;
+	const uint8_t recording_color = len >= 5U ? payload[3] :
+					WR_LED_COLOR_WHITE;
+	const uint8_t idle_color = len >= 5U ? payload[4] : WR_LED_COLOR_GREEN;
 
-	wr_led_apply_settings(payload[0], payload[1], payload[2]);
+	wr_led_apply_settings(payload[0], payload[1], payload[2],
+			      recording_color, idle_color);
 	return (ssize_t)len;
 }
 

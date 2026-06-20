@@ -36,6 +36,11 @@ class WrWiredUsb {
     return result ?? '';
   }
 
+  Future<String> diagnoseUsb() async {
+    final result = await _channel.invokeMethod<String>('diagnoseUsb');
+    return result ?? '';
+  }
+
   Future<List<WrWiredFile>> listFiles() async {
     final raw = await _channel.invokeMethod<List<dynamic>>('listFiles');
     return (raw ?? const <dynamic>[])

@@ -186,9 +186,24 @@ void main() {
     connectCompleter.complete();
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.text('デバイスLED'),
+      400,
+      scrollable: find.byType(Scrollable),
+    );
     expect(find.text('デバイスLED'), findsOneWidget);
     expect(find.textContaining('明るさ'), findsOneWidget);
     expect(find.text('設定を反映'), findsOneWidget);
+  });
+
+  testWidgets('shows wired rescue entry on the device screen', (tester) async {
+    await tester.pumpWidget(hostedDevicePage());
+
+    connectCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('USB救出'), findsOneWidget);
+    expect(find.text('USB救出を開く'), findsOneWidget);
   });
 
   test('mic gain labels match the OMI dB table', () {

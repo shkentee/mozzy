@@ -44,6 +44,8 @@ static struct wr_led_settings led_settings = {
 	.mode = WR_LED_MODE_BREATHE,
 	.brightness_pct = LED_DEFAULT_BRIGHTNESS_PCT,
 	.interval_sec = LED_DEFAULT_INTERVAL_SEC,
+	.recording_color = WR_LED_COLOR_WHITE,
+	.idle_color = WR_LED_COLOR_GREEN,
 };
 
 int wr_led_init(void)
@@ -101,8 +103,25 @@ void wr_led_get_settings(struct wr_led_settings *out)
 	*out = led_settings;
 }
 
+static uint8_t sanitize_color(uint8_t color, uint8_t fallback)
+{
+	switch (color) {
+	case WR_LED_COLOR_GREEN:
+	case WR_LED_COLOR_WHITE:
+	case WR_LED_COLOR_BLUE:
+	case WR_LED_COLOR_RED:
+	case WR_LED_COLOR_CYAN:
+	case WR_LED_COLOR_AMBER:
+	case WR_LED_COLOR_MAGENTA:
+		return color;
+	default:
+		return fallback;
+	}
+}
+
 void wr_led_apply_settings(uint8_t mode, uint8_t brightness_pct,
-			   uint8_t interval_sec)
+			   uint8_t interval_sec, uint8_t recording_color,
+			   uint8_t idle_color)
 {
 	if (mode != WR_LED_MODE_OFF) {
 		mode = WR_LED_MODE_BREATHE;
@@ -111,10 +130,15 @@ void wr_led_apply_settings(uint8_t mode, uint8_t brightness_pct,
 	led_settings.brightness_pct =
 		CLAMP(brightness_pct, 1U, LED_MAX_BRIGHTNESS_PCT);
 	led_settings.interval_sec = CLAMP(interval_sec, 1U, 10U);
-	LOG_INF("LED settings: mode=%u brightness=%u%% interval=%us",
+	led_settings.recording_color =
+		sanitize_color(recording_color, WR_LED_COLOR_WHITE);
+	led_settings.idle_color = sanitize_color(idle_color, WR_LED_COLOR_GREEN);
+	LOG_INF("LED settings: mode=%u brightness=%u%% interval=%us rec=%u idle=%u",
 		(unsigned int)led_settings.mode,
 		(unsigned int)led_settings.brightness_pct,
-		(unsigned int)led_settings.interval_sec);
+		(unsigned int)led_settings.interval_sec,
+		(unsigned int)led_settings.recording_color,
+		(unsigned int)led_settings.idle_color);
 }
 
 uint32_t wr_led_status_interval_ms(void)
@@ -122,20 +146,33 @@ uint32_t wr_led_status_interval_ms(void)
 	return (uint32_t)led_settings.interval_sec * 1000U;
 }
 
-/* Set the active colour's pins. recording = WHITE (red+green+blue), idle = GREEN. */
-static void flash_pins(bool recording, int on)
+static void flash_pins(uint8_t color, int on)
 {
-	(void)gpio_pin_set_dt(&led_green, on);
-	if (recording) {
-		(void)gpio_pin_set_dt(&led_red, on);
-		(void)gpio_pin_set_dt(&led_blue, on);
-	}
+	const bool red = color == WR_LED_COLOR_WHITE ||
+			 color == WR_LED_COLOR_RED ||
+			 color == WR_LED_COLOR_AMBER ||
+			 color == WR_LED_COLOR_MAGENTA;
+	const bool green = color == WR_LED_COLOR_GREEN ||
+			   color == WR_LED_COLOR_WHITE ||
+			   color == WR_LED_COLOR_CYAN ||
+			   color == WR_LED_COLOR_AMBER;
+	const bool blue = color == WR_LED_COLOR_WHITE ||
+			  color == WR_LED_COLOR_BLUE ||
+			  color == WR_LED_COLOR_CYAN ||
+			  color == WR_LED_COLOR_MAGENTA;
+
+	(void)gpio_pin_set_dt(&led_red, red ? on : 0);
+	(void)gpio_pin_set_dt(&led_green, green ? on : 0);
+	(void)gpio_pin_set_dt(&led_blue, blue ? on : 0);
 }
 
 void wr_led_dim_flash(bool recording)
 {
+	const uint8_t color = recording ? led_settings.recording_color :
+					  led_settings.idle_color;
+
 	if (led_settings.mode == WR_LED_MODE_OFF) {
-		flash_pins(true, 0);
+		flash_pins(WR_LED_COLOR_WHITE, 0);
 		return;
 	}
 
@@ -162,9 +199,9 @@ void wr_led_dim_flash(bool recording)
 			on_us = FADE_PERIOD_US;
 		}
 		if (on_us > 0) {
-			flash_pins(recording, 1);
+			flash_pins(color, 1);
 			k_busy_wait(on_us);
-			flash_pins(recording, 0);
+			flash_pins(color, 0);
 		}
 
 		const uint32_t off_us = FADE_PERIOD_US - on_us;
@@ -173,5 +210,5 @@ void wr_led_dim_flash(bool recording)
 			k_sleep(K_USEC(off_us)); /* idle the CPU between pulses */
 		}
 	}
-	flash_pins(recording, 0); /* ensure fully off */
+	flash_pins(color, 0); /* ensure fully off */
 }

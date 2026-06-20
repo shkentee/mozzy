@@ -59,6 +59,16 @@ class _SettingsPageState extends State<SettingsPage> {
           intervalSec: (prefs.getInt(kLedIntervalKey) ??
                   WrLedSettings.defaults.intervalSec)
               .clamp(1, 10),
+          recordingColor: WrLedColor.fromId(
+            prefs.getInt(kLedRecordingColorKey) ??
+                WrLedSettings.defaults.recordingColor.id,
+            WrLedSettings.defaults.recordingColor,
+          ),
+          idleColor: WrLedColor.fromId(
+            prefs.getInt(kLedIdleColorKey) ??
+                WrLedSettings.defaults.idleColor.id,
+            WrLedSettings.defaults.idleColor,
+          ),
         );
       });
     }
@@ -265,11 +275,46 @@ class _SettingsPageState extends State<SettingsPage> {
             SwitchListTile(
               secondary: const Icon(Icons.lightbulb_outline),
               title: const Text('ステータスLED'),
-              subtitle: const Text('録音中は白、停止中は緑で光ります'),
+              subtitle: const Text('色・明るさ・光る間隔を変更できます'),
               value: _ledSettings.enabled,
               onChanged: _busy
                   ? null
                   : (v) => _saveLedSettings(_ledSettings.copyWith(enabled: v)),
+            ),
+            ListTile(
+              enabled: _ledSettings.enabled,
+              leading: const Icon(Icons.fiber_manual_record),
+              title: const Text('録音中の色'),
+              trailing: DropdownButton<WrLedColor>(
+                value: _ledSettings.recordingColor,
+                onChanged: !_ledSettings.enabled || _busy
+                    ? null
+                    : (v) => v == null
+                        ? null
+                        : _saveLedSettings(
+                            _ledSettings.copyWith(recordingColor: v)),
+                items: [
+                  for (final color in WrLedColor.values)
+                    DropdownMenuItem(value: color, child: Text(color.label)),
+                ],
+              ),
+            ),
+            ListTile(
+              enabled: _ledSettings.enabled,
+              leading: const Icon(Icons.radio_button_unchecked),
+              title: const Text('停止中の色'),
+              trailing: DropdownButton<WrLedColor>(
+                value: _ledSettings.idleColor,
+                onChanged: !_ledSettings.enabled || _busy
+                    ? null
+                    : (v) => v == null
+                        ? null
+                        : _saveLedSettings(_ledSettings.copyWith(idleColor: v)),
+                items: [
+                  for (final color in WrLedColor.values)
+                    DropdownMenuItem(value: color, child: Text(color.label)),
+                ],
+              ),
             ),
             ListTile(
               enabled: _ledSettings.enabled,

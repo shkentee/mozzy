@@ -16,6 +16,7 @@ import 'recordings_page.dart';
 import 'settings_page.dart';
 import 'storage_page.dart';
 import 'transcripts_page.dart';
+import 'wired_rescue_page.dart';
 
 /// SharedPreferences key used to persist the last-connected device address.
 const _kLastDeviceId = 'wr_last_device_id';
@@ -467,7 +468,7 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
   Widget _buildLedStatus() {
     final enabled = _ledSettings.enabled;
     final status = enabled
-        ? '明るさ ${_ledSettings.brightnessPct}% / ${_ledSettings.intervalSec}秒間隔'
+        ? '録音中 ${_ledSettings.recordingColor.label} / 停止中 ${_ledSettings.idleColor.label} / 明るさ ${_ledSettings.brightnessPct}% / ${_ledSettings.intervalSec}秒間隔'
         : 'オフ';
     final detail = _ledStatus ??
         (_status == 'connected' ? '接続時に自動で反映します' : 'デバイス接続後に反映します');
@@ -493,6 +494,34 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
             onPressed: _status == 'connected' ? _applyLedSettings : null,
             icon: const Icon(Icons.send_outlined),
             label: const Text('設定を反映'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWiredRescueCard() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          icon: Icons.usb,
+          title: 'USB救出',
+          mode: '有線で一括吸出し',
+        ),
+        const SizedBox(height: 12),
+        _statusNote('デバイスをスマホへUSB接続して、SD内の未回収ファイルをまとめてDriveへ送ります。'),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const WiredRescuePage()),
+              );
+            },
+            icon: const Icon(Icons.usb),
+            label: const Text('USB救出を開く'),
           ),
         ),
       ],
@@ -749,6 +778,8 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
               ),
             ),
           ),
+          const SizedBox(height: 14),
+          _card(_buildWiredRescueCard()),
           const SizedBox(height: 14),
           _card(
             Column(
