@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../services/wr_drive_uploader.dart';
 import '../services/wr_foreground_service.dart';
+import '../services/wr_upload_outbox.dart';
 import '../services/wr_wired_usb.dart';
 
 typedef PrepareExclusiveUsb = Future<void> Function();
@@ -10,14 +10,11 @@ class WiredRescuePage extends StatefulWidget {
   const WiredRescuePage({
     super.key,
     WrWiredUsb? wired,
-    WrDriveUploader? uploader,
     PrepareExclusiveUsb? prepareExclusiveUsb,
   })  : _wiredOverride = wired,
-        _uploaderOverride = uploader,
         _prepareExclusiveUsbOverride = prepareExclusiveUsb;
 
   final WrWiredUsb? _wiredOverride;
-  final WrDriveUploader? _uploaderOverride;
   final PrepareExclusiveUsb? _prepareExclusiveUsbOverride;
 
   @override
@@ -26,8 +23,6 @@ class WiredRescuePage extends StatefulWidget {
 
 class _WiredRescuePageState extends State<WiredRescuePage> {
   WrWiredUsb get _wired => widget._wiredOverride ?? WrWiredUsb();
-  WrDriveUploader get _uploader =>
-      widget._uploaderOverride ?? WrDriveUploader();
 
   bool _busy = false;
   bool _exclusiveUsbReady = false;
@@ -97,7 +92,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     }
   }
 
-  Future<void> _rescueAll() async {
+  Future<void> _queueAll() async {
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -106,9 +101,8 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     try {
       await _prepareExclusiveUsb();
       if (!mounted) return;
-      setState(() => _status = 'USB救出を開始します...');
-      final uploaded = await _wired.fetchAndUploadAll(
-        uploader: _uploader,
+      setState(() => _status = 'USB吸出しを開始します...');
+      final queued = await _wired.fetchAndQueueAll(
         onProgress: (message) {
           if (!mounted) return;
           setState(() => _status = message);
@@ -118,7 +112,9 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
       if (!mounted) return;
       setState(() {
         _files = files;
-        _status = 'USB救出完了: $uploaded件をDriveへ送信しました';
+        _status = queued == 0
+            ? 'USB吸出し完了: すべて送信待ちに登録済みです'
+            : 'USB吸出し完了: $queued件を送信待ちに入れました';
       });
     } catch (e) {
       if (!mounted) return;
@@ -128,7 +124,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     }
   }
 
-  Future<void> _rescueOne(WrWiredFile file) async {
+  Future<void> _queueOne(WrWiredFile file) async {
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -139,23 +135,25 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
       if (!mounted) return;
       setState(() => _status = '録音を一時停止中...');
       await _wired.pauseRecording();
+      late String resultStatus;
       try {
         setState(() => _status = 'USB吸出し中: ${file.name}');
         final local = await _wired.fetchToTemp(file);
-        try {
-          setState(() => _status = 'Drive送信中: ${file.name}');
-          final id = await _uploader.uploadIfNew(local, file.name);
-          if (!mounted) return;
-          setState(() => _status =
-              id == null ? '送信済みです: ${file.name}' : 'Drive送信完了: ${file.name}');
-        } finally {
-          try {
-            await local.delete();
-          } catch (_) {}
-        }
+        final queued = await const WrUploadOutbox().enqueue(
+          local,
+          file.name,
+          deleteSource: true,
+        );
+        if (!mounted) return;
+        resultStatus = queued.alreadyQueued
+            ? '送信待ちに登録済み: ${queued.name}'
+            : '送信待ちへ追加: ${queued.name}';
       } finally {
         if (mounted) setState(() => _status = '録音を再開中...');
         await _wired.resumeRecording();
+      }
+      if (mounted) {
+        setState(() => _status = resultStatus);
       }
     } catch (e) {
       if (!mounted) return;
@@ -196,18 +194,30 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
           const SizedBox(height: 12),
           if (_busy) const LinearProgressIndicator(),
           const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _busy ? null : _refresh,
-            icon: const Icon(Icons.usb),
-            label: const Text('USB接続を確認'),
+          if (_files.isEmpty || _usbDiagnostics != null) ...[
+            Text(
+              '画面を開くとUSB内の録音を自動で探します。接続し直した時だけ再読み込みしてください。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _refresh,
+              icon: const Icon(Icons.usb),
+              label: const Text('USB内を再読み込み'),
+            ),
+            const SizedBox(height: 16),
+          ],
+          Text(
+            '見つかった録音をスマホへ吸い出し、既存のDrive送信待ちキューに入れます。自動アップロードがONなら通常処理が順番に送信します。',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
           FilledButton.icon(
-            onPressed: _busy || _files.isEmpty ? null : _rescueAll,
+            onPressed: _busy || _files.isEmpty ? null : _queueAll,
             icon: const Icon(Icons.cloud_upload_outlined),
             label: Text(_files.isEmpty
-                ? 'Driveへ一括送信'
-                : 'Driveへ一括送信（${_files.length}件 / ${_fmtMB(totalBytes)}）'),
+                ? 'スマホへ吸出して送信待ちに入れる'
+                : 'スマホへ吸出して送信待ちに入れる（${_files.length}件 / ${_fmtMB(totalBytes)}）'),
           ),
           const SizedBox(height: 16),
           if (_files.isEmpty)
@@ -221,8 +231,8 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
                 subtitle: Text(_fmtMB(file.sizeBytes)),
                 trailing: IconButton(
                   icon: const Icon(Icons.cloud_upload_outlined),
-                  tooltip: 'このファイルをDriveへ送信',
-                  onPressed: _busy ? null : () => _rescueOne(file),
+                  tooltip: 'このファイルを送信待ちに入れる',
+                  onPressed: _busy ? null : () => _queueOne(file),
                 ),
               ),
             ),

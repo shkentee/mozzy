@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'wr_drive_uploader.dart';
+import 'wr_upload_outbox.dart';
 
 class WrWiredFile {
   const WrWiredFile({
@@ -103,6 +104,42 @@ class WrWiredUsb {
           ? 'USB側に送信対象ファイルはありません'
           : 'USB吸出し完了: $uploaded/${files.length}件をDriveへ送信');
       return uploaded;
+    } finally {
+      onProgress?.call('録音を再開中...');
+      await resumeRecording();
+    }
+  }
+
+  Future<int> fetchAndQueueAll({
+    WrUploadOutbox outbox = const WrUploadOutbox(),
+    void Function(String message)? onProgress,
+  }) async {
+    onProgress?.call('USB内の録音を確認中...');
+    await ping();
+    onProgress?.call('録音を一時停止中...');
+    await pauseRecording();
+    try {
+      final files = await listFiles();
+      var queued = 0;
+
+      for (final file in files) {
+        onProgress?.call('USB吸出し中: ${file.name}');
+        final local = await fetchToTemp(file);
+        final item = await outbox.enqueue(
+          local,
+          file.name,
+          deleteSource: true,
+        );
+        if (!item.alreadyQueued) queued++;
+        onProgress?.call(item.alreadyQueued
+            ? '送信待ちに登録済み: ${item.name}'
+            : '送信待ちへ追加: ${item.name}');
+      }
+
+      onProgress?.call(files.isEmpty
+          ? 'USB側に吸出し対象ファイルはありません'
+          : 'USB吸出し完了: ${files.length}件を送信待ちに入れました');
+      return queued;
     } finally {
       onProgress?.call('録音を再開中...');
       await resumeRecording();

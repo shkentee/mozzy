@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'wr_ble_device.dart';
 import 'wr_drive_uploader.dart';
+import 'wr_upload_outbox.dart';
 import 'wr_storage_client.dart';
 import 'wr_sync_schedule.dart';
 
@@ -317,10 +318,7 @@ class WrSdSync {
   }
 
   Future<Directory> _outboxDir() async {
-    final base = await getApplicationSupportDirectory();
-    final dir = Directory('${base.path}/outbox');
-    if (!await dir.exists()) await dir.create(recursive: true);
-    return dir;
+    return WrUploadOutbox.dir();
   }
 
   Future<void> _emitUploadStatus() async {
