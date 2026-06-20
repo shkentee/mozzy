@@ -161,7 +161,8 @@ class MainActivity : FlutterActivity() {
 
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
-        val intent = PendingIntent.getBroadcast(this, 0, Intent(action), flags)
+        val permissionIntent = Intent(action).setPackage(packageName)
+        val intent = PendingIntent.getBroadcast(this, 0, permissionIntent, flags)
         return try {
             manager.requestPermission(device, intent)
             latch.await(30, TimeUnit.SECONDS) && granted
