@@ -56,6 +56,8 @@ static size_t rx_idx;
 static const struct device *console_uart;
 static bool boot_cmd_thread_started;
 static uint8_t wired_fetch_chunk[WIRED_CHUNK_BYTES];
+static volatile bool wired_fetch_cancel_requested;
+static bool wired_fetch_dtr_seen;
 
 K_MSGQ_DEFINE(boot_cmd_queue, BOOT_RX_BUF_LEN, BOOT_CMD_QUEUE_DEPTH, 4);
 static K_THREAD_STACK_DEFINE(boot_cmd_stack, BOOT_CMD_STACK_SIZE);
@@ -105,6 +107,27 @@ static uint32_t crc32_ieee(const uint8_t *data, size_t len)
 	}
 
 	return ~crc;
+}
+
+static bool wired_fetch_should_cancel(void)
+{
+	if (wired_fetch_cancel_requested) {
+		return true;
+	}
+	if (console_uart == NULL) {
+		return false;
+	}
+
+	uint32_t dtr = 0U;
+	const int rc = uart_line_ctrl_get(console_uart, UART_LINE_CTRL_DTR, &dtr);
+	if (rc < 0) {
+		return false;
+	}
+	if (dtr != 0U) {
+		wired_fetch_dtr_seen = true;
+		return false;
+	}
+	return wired_fetch_dtr_seen;
 }
 
 static bool filename_allowed(const char *filename)
@@ -261,9 +284,16 @@ static void handle_wired_fetch(const char *filename, uint32_t offset)
 		}
 	}
 
+	wired_fetch_cancel_requested = false;
+	wired_fetch_dtr_seen = false;
 	uart_sendf("WR-FETCH-BEGIN %s %zu binary-crc32 %u\n",
 		   filename, entry.size, offset);
 	for (;;) {
+		if (wired_fetch_should_cancel()) {
+			(void)fs_close(&file);
+			uart_sendf("WR-CANCELLED %u\n", sent);
+			return;
+		}
 		const ssize_t rd = fs_read(&file, wired_fetch_chunk,
 					   sizeof(wired_fetch_chunk));
 		if (rd < 0) {
@@ -279,6 +309,11 @@ static void handle_wired_fetch(const char *filename, uint32_t offset)
 		uart_send(wired_fetch_chunk, (size_t)rd);
 		uart_send_str("\n");
 		sent += (uint32_t)rd;
+		if (wired_fetch_should_cancel()) {
+			(void)fs_close(&file);
+			uart_sendf("WR-CANCELLED %u\n", sent);
+			return;
+		}
 	}
 	(void)fs_close(&file);
 	uart_sendf("WR-END %u\n", sent);
@@ -394,8 +429,16 @@ static void boot_cmd_uart_cb(const struct device *dev, void *user_data)
 		if (c == '\n' || c == '\r') {
 			rx_buf[rx_idx] = '\0';
 			if (rx_idx > 0U) {
-				(void)k_msgq_put(&boot_cmd_queue, rx_buf, K_NO_WAIT);
+				if (strcmp(rx_buf, "wr-cancel") == 0) {
+					wired_fetch_cancel_requested = true;
+				} else {
+					(void)k_msgq_put(&boot_cmd_queue, rx_buf,
+							 K_NO_WAIT);
+				}
 			}
+			rx_idx = 0;
+		} else if (c == 0x03) {
+			wired_fetch_cancel_requested = true;
 			rx_idx = 0;
 		} else if (rx_idx < (BOOT_RX_BUF_LEN - 1)) {
 			rx_buf[rx_idx++] = (char)c;
