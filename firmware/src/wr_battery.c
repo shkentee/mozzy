@@ -23,7 +23,7 @@
 
 #include <stdio.h>
 
-LOG_MODULE_REGISTER(wr_battery, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(wr_battery, LOG_LEVEL_WRN);
 
 /* Vbat = Vadc * (full / output) = Vadc * 1510k / 510k (~x2.96). */
 #define BATT_DIV_FULL_OHM   1510000U
