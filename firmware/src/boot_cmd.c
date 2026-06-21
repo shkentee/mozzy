@@ -10,6 +10,7 @@
  *   wr-resume
  *   wr-list
  *   wr-fetch <basename.opus_sd> [offset]
+ *   wr-bench <bytes>
  *
  * The rescue protocol uses text control lines plus binary chunks with CRC32.
  * The same CDC port is also the Zephyr console, so WR-prefixed control lines
@@ -291,6 +292,30 @@ static void handle_wired_fetch(const char *filename, uint32_t offset)
 	uart_sendf("WR-END %u\n", sent);
 }
 
+static void handle_wired_bench(uint32_t bytes)
+{
+	if (bytes == 0U) {
+		uart_send_str("WR-ERR bad-bench-size\n");
+		return;
+	}
+
+	for (size_t i = 0; i < sizeof(wired_fetch_chunk); i++) {
+		wired_fetch_chunk[i] = (uint8_t)(i & 0xFF);
+	}
+
+	uart_sendf("WR-BENCH-BEGIN %u binary\n", bytes);
+	uint32_t sent = 0;
+	while (sent < bytes) {
+		size_t n = sizeof(wired_fetch_chunk);
+		if ((bytes - sent) < n) {
+			n = bytes - sent;
+		}
+		uart_send(wired_fetch_chunk, n);
+		sent += (uint32_t)n;
+	}
+	uart_sendf("\nWR-BENCH-END %u\n", sent);
+}
+
 static void wait_recording_state(bool recording)
 {
 	for (int i = 0; i < 40; i++) {
@@ -335,6 +360,14 @@ static void handle_line(const char *line)
 			return;
 		}
 		handle_wired_fetch(filename, offset);
+	} else if (strncmp(line, "wr-bench ", 9) == 0) {
+		char *end = NULL;
+		const unsigned long bytes = strtoul(&line[9], &end, 10);
+		if (end == &line[9] || *end != '\0' || bytes > UINT32_MAX) {
+			uart_send_str("WR-ERR bad-bench-args\n");
+			return;
+		}
+		handle_wired_bench((uint32_t)bytes);
 	}
 }
 
