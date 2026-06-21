@@ -955,6 +955,54 @@ private class CdcSession(
             while (written < header.sizeBytes) {
                 val line = readUntilPrefix("WR-", 30000)
                 when {
+                    line.startsWith("WR-DATA2 ") -> {
+                        val chunk = parseStreamChunkHeader(line)
+                        if (chunk.offset < 4096L || chunk.offset % (1024L * 1024L) == 0L) {
+                            Log.i(
+                                WIRED_RESCUE_TAG,
+                                "stream chunk offset=${chunk.offset} length=${chunk.length}"
+                            )
+                        }
+                        if (chunk.length <= 0 ||
+                            chunk.length > 1024 * 1024 ||
+                            written + chunk.length > header.sizeBytes
+                        ) {
+                            throw WiredUsbException(
+                                "wired_chunk_size",
+                                "Invalid USB stream chunk length ${chunk.length}."
+                            )
+                        }
+                        if (chunk.offset != written) {
+                            readExactBytes(chunk.length, 60000)
+                            discardFetchRemainder()
+                            throw WiredUsbException(
+                                "wired_offset_mismatch",
+                                "Device sent offset ${chunk.offset} but expected $written."
+                            )
+                        }
+                        val bytes = readExactBytes(chunk.length, 60000)
+                        val crcLine = readUntilPrefix("WR-CRC ", 30000)
+                        val reported = parseStreamCrc(crcLine)
+                        if (reported.offset != chunk.offset || reported.length != chunk.length) {
+                            discardFetchRemainder()
+                            throw WiredUsbException(
+                                "wired_crc_mismatch",
+                                "USB stream CRC metadata mismatch at offset ${chunk.offset}."
+                            )
+                        }
+                        val crc = CRC32()
+                        crc.update(bytes)
+                        if (crc.value != reported.crc32) {
+                            discardFetchRemainder()
+                            throw WiredUsbException(
+                                "wired_crc_mismatch",
+                                "USB stream CRC mismatch at offset ${chunk.offset}."
+                            )
+                        }
+                        out.write(bytes)
+                        written += bytes.size.toLong()
+                        onProgress?.invoke(written)
+                    }
                     line.startsWith("WR-DATA ") -> {
                         val chunk = parseBinaryChunkHeader(line)
                         if (chunk.offset < 4096L || chunk.offset % (1024L * 1024L) == 0L) {
@@ -1016,11 +1064,17 @@ private class CdcSession(
             while (true) {
                 val line = readUntilPrefix("WR-", 30000)
                 when {
+                    line.startsWith("WR-DATA2 ") -> {
+                        val chunk = parseStreamChunkHeader(line)
+                        if (chunk.length < 0 || chunk.length > 1024 * 1024) return
+                        readExactBytes(chunk.length, 60000)
+                    }
                     line.startsWith("WR-DATA ") -> {
                         val chunk = parseBinaryChunkHeader(line)
                         if (chunk.length < 0 || chunk.length > 1024 * 1024) return
                         readExactBytes(chunk.length, 30000)
                     }
+                    line.startsWith("WR-CRC ") -> Unit
                     line.startsWith("WR-END") -> return
                     line.startsWith("WR-ERR") -> return
                 }
@@ -1086,6 +1140,7 @@ private class CdcSession(
     private data class FetchBegin(
         val sizeBytes: Long,
         val binaryCrc32: Boolean,
+        val binaryStreamCrc32: Boolean,
         val startOffset: Long,
     )
 
@@ -1095,14 +1150,21 @@ private class CdcSession(
         val crc32: Long,
     )
 
+    private data class StreamChunkHeader(
+        val offset: Long,
+        val length: Int,
+    )
+
     private fun parseFetchBegin(line: String): FetchBegin {
         val parts = line.removePrefix("WR-FETCH-BEGIN ")
             .trim()
             .split(Regex("\\s+"))
         val size = parts.getOrNull(1)?.toLongOrNull() ?: 0L
+        val mode = parts.getOrNull(2)
         return FetchBegin(
             sizeBytes = size,
-            binaryCrc32 = parts.getOrNull(2) == "binary-crc32",
+            binaryCrc32 = mode == "binary-crc32" || mode == "binary-stream-crc32",
+            binaryStreamCrc32 = mode == "binary-stream-crc32",
             startOffset = parts.getOrNull(3)?.toLongOrNull() ?: 0L,
         )
     }
@@ -1116,6 +1178,31 @@ private class CdcSession(
         val crc = parts.getOrNull(2)?.toLongOrNull(16)
         if (offset == null || length == null || crc == null) {
             throw WiredUsbException("wired_protocol", "Bad binary chunk header: $line")
+        }
+        return BinaryChunkHeader(offset, length, crc)
+    }
+
+    private fun parseStreamChunkHeader(line: String): StreamChunkHeader {
+        val parts = line.removePrefix("WR-DATA2 ")
+            .trim()
+            .split(Regex("\\s+"))
+        val offset = parts.getOrNull(0)?.toLongOrNull()
+        val length = parts.getOrNull(1)?.toIntOrNull()
+        if (offset == null || length == null) {
+            throw WiredUsbException("wired_protocol", "Bad stream chunk header: $line")
+        }
+        return StreamChunkHeader(offset, length)
+    }
+
+    private fun parseStreamCrc(line: String): BinaryChunkHeader {
+        val parts = line.removePrefix("WR-CRC ")
+            .trim()
+            .split(Regex("\\s+"))
+        val offset = parts.getOrNull(0)?.toLongOrNull()
+        val length = parts.getOrNull(1)?.toIntOrNull()
+        val crc = parts.getOrNull(2)?.toLongOrNull(16)
+        if (offset == null || length == null || crc == null) {
+            throw WiredUsbException("wired_protocol", "Bad stream CRC line: $line")
         }
         return BinaryChunkHeader(offset, length, crc)
     }

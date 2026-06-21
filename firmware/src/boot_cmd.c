@@ -49,13 +49,14 @@ LOG_MODULE_REGISTER(wr_boot, LOG_LEVEL_INF);
 #define STORAGE_MOUNT_POINT "/SD:"
 #define STORAGE_MAX_FILENAME 63
 #define STORAGE_MAX_PATH 80
-#define WIRED_CHUNK_BYTES 65536
+#define WIRED_IO_BYTES 65536
+#define WIRED_FRAME_BYTES (1024U * 1024U)
 
 static char rx_buf[BOOT_RX_BUF_LEN];
 static size_t rx_idx;
 static const struct device *console_uart;
 static bool boot_cmd_thread_started;
-static uint8_t wired_fetch_chunk[WIRED_CHUNK_BYTES];
+static uint8_t wired_fetch_chunk[WIRED_IO_BYTES];
 static volatile bool wired_fetch_cancel_requested;
 static bool wired_fetch_dtr_seen;
 static const uint8_t *wired_tx_data;
@@ -125,10 +126,8 @@ static void uart_sendf(const char *fmt, ...)
 		  n < (int)sizeof(line) ? (size_t)n : sizeof(line));
 }
 
-static uint32_t crc32_ieee(const uint8_t *data, size_t len)
+static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t len)
 {
-	uint32_t crc = 0xFFFFFFFFU;
-
 	for (size_t i = 0; i < len; i++) {
 		crc ^= data[i];
 		for (int bit = 0; bit < 8; bit++) {
@@ -137,6 +136,11 @@ static uint32_t crc32_ieee(const uint8_t *data, size_t len)
 		}
 	}
 
+	return crc;
+}
+
+static uint32_t crc32_finish(uint32_t crc)
+{
 	return ~crc;
 }
 
@@ -317,34 +321,48 @@ static void handle_wired_fetch(const char *filename, uint32_t offset)
 
 	wired_fetch_cancel_requested = false;
 	wired_fetch_dtr_seen = false;
-	uart_sendf("WR-FETCH-BEGIN %s %zu binary-crc32 %u\n",
-		   filename, entry.size, offset);
-	for (;;) {
+	uart_sendf("WR-FETCH-BEGIN %s %zu binary-stream-crc32 %u %u\n",
+		   filename, entry.size, offset, WIRED_FRAME_BYTES);
+	while (sent < entry.size) {
+		const uint32_t frame_offset = sent;
+		uint32_t frame_len = (uint32_t)(entry.size - sent);
+		if (frame_len > WIRED_FRAME_BYTES) {
+			frame_len = WIRED_FRAME_BYTES;
+		}
+
 		if (wired_fetch_should_cancel()) {
 			(void)fs_close(&file);
 			uart_sendf("WR-CANCELLED %u\n", sent);
 			return;
 		}
-		const ssize_t rd = fs_read(&file, wired_fetch_chunk,
-					   sizeof(wired_fetch_chunk));
-		if (rd < 0) {
-			uart_sendf("WR-ERR read %zd\n", rd);
-			(void)fs_close(&file);
-			return;
+		uart_sendf("WR-DATA2 %u %u\n", frame_offset, frame_len);
+
+		uint32_t frame_sent = 0U;
+		uint32_t crc = 0xFFFFFFFFU;
+		while (frame_sent < frame_len) {
+			size_t want = sizeof(wired_fetch_chunk);
+			if ((frame_len - frame_sent) < want) {
+				want = frame_len - frame_sent;
+			}
+			const ssize_t rd = fs_read(&file, wired_fetch_chunk, want);
+			if (rd < 0) {
+				uart_sendf("\nWR-ERR read %zd\n", rd);
+				(void)fs_close(&file);
+				return;
+			}
+			if (rd == 0) {
+				uart_sendf("\nWR-ERR short-read %u %u\n",
+					   frame_offset, frame_sent);
+				(void)fs_close(&file);
+				return;
+			}
+			crc = crc32_update(crc, wired_fetch_chunk, (size_t)rd);
+			uart_send(wired_fetch_chunk, (size_t)rd);
+			frame_sent += (uint32_t)rd;
+			sent += (uint32_t)rd;
 		}
-		if (rd == 0) {
-			break;
-		}
-		const uint32_t crc = crc32_ieee(wired_fetch_chunk, (size_t)rd);
-		uart_sendf("WR-DATA %u %zd %08x\n", sent, rd, crc);
-		uart_send(wired_fetch_chunk, (size_t)rd);
-		uart_send_str("\n");
-		sent += (uint32_t)rd;
-		if (wired_fetch_should_cancel()) {
-			(void)fs_close(&file);
-			uart_sendf("WR-CANCELLED %u\n", sent);
-			return;
-		}
+		uart_sendf("\nWR-CRC %u %u %08x\n",
+			   frame_offset, frame_len, crc32_finish(crc));
 	}
 	(void)fs_close(&file);
 	uart_sendf("WR-END %u\n", sent);
