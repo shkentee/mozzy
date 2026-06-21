@@ -350,6 +350,84 @@ static void handle_wired_fetch(const char *filename, uint32_t offset)
 	uart_sendf("WR-END %u\n", sent);
 }
 
+static bool parse_read_bench_args(const char *args, char *filename,
+				  size_t filename_size, uint32_t *bytes)
+{
+	if (args == NULL || filename == NULL || bytes == NULL) {
+		return false;
+	}
+
+	const char *space = strchr(args, ' ');
+	const size_t name_len = space == NULL ? strlen(args) : (size_t)(space - args);
+	if (name_len == 0 || name_len >= filename_size || space == NULL) {
+		return false;
+	}
+	memcpy(filename, args, name_len);
+	filename[name_len] = '\0';
+	while (*space == ' ') {
+		space++;
+	}
+	char *end = NULL;
+	const unsigned long parsed = strtoul(space, &end, 10);
+	while (end != NULL && *end == ' ') {
+		end++;
+	}
+	if (end == NULL || *end != '\0' || parsed == 0 || parsed > UINT32_MAX) {
+		return false;
+	}
+	*bytes = (uint32_t)parsed;
+	return true;
+}
+
+static void handle_wired_read_bench(const char *filename, uint32_t bytes)
+{
+	char path[STORAGE_MAX_PATH];
+	struct fs_file_t file;
+	struct fs_dirent entry;
+
+	int rc = build_path(path, sizeof(path), filename);
+	if (rc < 0) {
+		uart_sendf("WR-ERR bad-name %d\n", rc);
+		return;
+	}
+	rc = fs_stat(path, &entry);
+	if (rc < 0) {
+		uart_sendf("WR-ERR stat %d\n", rc);
+		return;
+	}
+
+	fs_file_t_init(&file);
+	rc = fs_open(&file, path, FS_O_READ);
+	if (rc < 0) {
+		uart_sendf("WR-ERR open %d\n", rc);
+		return;
+	}
+
+	uint32_t read_total = 0U;
+	const int64_t start_ms = k_uptime_get();
+	while (read_total < bytes) {
+		size_t want = sizeof(wired_fetch_chunk);
+		if ((bytes - read_total) < want) {
+			want = bytes - read_total;
+		}
+		const ssize_t rd = fs_read(&file, wired_fetch_chunk, want);
+		if (rd < 0) {
+			uart_sendf("WR-ERR read %zd\n", rd);
+			(void)fs_close(&file);
+			return;
+		}
+		if (rd == 0) {
+			break;
+		}
+		read_total += (uint32_t)rd;
+	}
+	const uint32_t elapsed_ms = (uint32_t)(k_uptime_get() - start_ms);
+	(void)fs_close(&file);
+	uart_sendf("WR-READ-BENCH %s %u %u %u\n",
+		   filename, read_total, elapsed_ms,
+		   (uint32_t)sizeof(wired_fetch_chunk));
+}
+
 static void handle_wired_bench(uint32_t bytes)
 {
 	if (bytes == 0U) {
@@ -426,6 +504,15 @@ static void handle_line(const char *line)
 			return;
 		}
 		handle_wired_bench((uint32_t)bytes);
+	} else if (strncmp(line, "wr-read-bench ", 14) == 0) {
+		char filename[STORAGE_MAX_FILENAME + 1];
+		uint32_t bytes = 0U;
+		if (!parse_read_bench_args(&line[14], filename,
+					   sizeof(filename), &bytes)) {
+			uart_send_str("WR-ERR bad-read-bench-args\n");
+			return;
+		}
+		handle_wired_read_bench(filename, bytes);
 	}
 }
 
