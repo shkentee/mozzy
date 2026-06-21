@@ -11,9 +11,10 @@
  *   wr-list
  *   wr-fetch <basename.opus_sd>
  *
- * The rescue protocol is text + Base64 lines, not raw binary. The same CDC
- * port is also the Zephyr console, so using WR-prefixed lines lets the Android
- * side ignore unrelated boot/runtime logs instead of corrupting audio bytes.
+ * The rescue protocol uses text control lines plus binary chunks with CRC32.
+ * The same CDC port is also the Zephyr console, so WR-prefixed control lines
+ * let the Android side find protocol boundaries while per-chunk CRC prevents
+ * mixed console output from being queued as a valid recording.
  */
 #include "boot_cmd.h"
 
@@ -45,20 +46,17 @@ LOG_MODULE_REGISTER(wr_boot, LOG_LEVEL_INF);
 #define STORAGE_MOUNT_POINT "/SD:"
 #define STORAGE_MAX_FILENAME 63
 #define STORAGE_MAX_PATH 80
-#define WIRED_CHUNK_BYTES 192
-#define WIRED_B64_BYTES (((WIRED_CHUNK_BYTES + 2) / 3) * 4)
+#define WIRED_CHUNK_BYTES 4096
 
 static char rx_buf[BOOT_RX_BUF_LEN];
 static size_t rx_idx;
 static const struct device *console_uart;
 static bool boot_cmd_thread_started;
+static uint8_t wired_fetch_chunk[WIRED_CHUNK_BYTES];
 
 K_MSGQ_DEFINE(boot_cmd_queue, BOOT_RX_BUF_LEN, BOOT_CMD_QUEUE_DEPTH, 4);
 static K_THREAD_STACK_DEFINE(boot_cmd_stack, BOOT_CMD_STACK_SIZE);
 static struct k_thread boot_cmd_thread;
-
-static const char b64_table[] =
-	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static void uart_send(const uint8_t *data, size_t len)
 {
@@ -91,22 +89,19 @@ static void uart_sendf(const char *fmt, ...)
 		  n < (int)sizeof(line) ? (size_t)n : sizeof(line));
 }
 
-static size_t base64_encode(const uint8_t *in, size_t len, char *out)
+static uint32_t crc32_ieee(const uint8_t *data, size_t len)
 {
-	size_t o = 0;
-	for (size_t i = 0; i < len; i += 3) {
-		const uint32_t a = in[i];
-		const uint32_t b = (i + 1 < len) ? in[i + 1] : 0;
-		const uint32_t c = (i + 2 < len) ? in[i + 2] : 0;
-		const uint32_t v = (a << 16) | (b << 8) | c;
+	uint32_t crc = 0xFFFFFFFFU;
 
-		out[o++] = b64_table[(v >> 18) & 0x3F];
-		out[o++] = b64_table[(v >> 12) & 0x3F];
-		out[o++] = (i + 1 < len) ? b64_table[(v >> 6) & 0x3F] : '=';
-		out[o++] = (i + 2 < len) ? b64_table[v & 0x3F] : '=';
+	for (size_t i = 0; i < len; i++) {
+		crc ^= data[i];
+		for (int bit = 0; bit < 8; bit++) {
+			const uint32_t mask = 0U - (crc & 1U);
+			crc = (crc >> 1) ^ (0xEDB88320U & mask);
+		}
 	}
-	out[o] = '\0';
-	return o;
+
+	return ~crc;
 }
 
 static bool filename_allowed(const char *filename)
@@ -188,8 +183,6 @@ static void handle_wired_fetch(const char *filename)
 	char path[STORAGE_MAX_PATH];
 	struct fs_file_t file;
 	struct fs_dirent entry;
-	uint8_t chunk[WIRED_CHUNK_BYTES];
-	char encoded[WIRED_B64_BYTES + 1];
 	uint32_t sent = 0;
 
 	int rc = build_path(path, sizeof(path), filename);
@@ -215,9 +208,10 @@ static void handle_wired_fetch(const char *filename)
 		return;
 	}
 
-	uart_sendf("WR-FETCH-BEGIN %s %zu\n", filename, entry.size);
+	uart_sendf("WR-FETCH-BEGIN %s %zu binary-crc32\n", filename, entry.size);
 	for (;;) {
-		const ssize_t rd = fs_read(&file, chunk, sizeof(chunk));
+		const ssize_t rd = fs_read(&file, wired_fetch_chunk,
+					   sizeof(wired_fetch_chunk));
 		if (rd < 0) {
 			uart_sendf("WR-ERR read %zd\n", rd);
 			(void)fs_close(&file);
@@ -226,9 +220,9 @@ static void handle_wired_fetch(const char *filename)
 		if (rd == 0) {
 			break;
 		}
-		(void)base64_encode(chunk, (size_t)rd, encoded);
-		uart_send_str("WR-DATA ");
-		uart_send_str(encoded);
+		const uint32_t crc = crc32_ieee(wired_fetch_chunk, (size_t)rd);
+		uart_sendf("WR-DATA %u %zd %08x\n", sent, rd, crc);
+		uart_send(wired_fetch_chunk, (size_t)rd);
 		uart_send_str("\n");
 		sent += (uint32_t)rd;
 	}
