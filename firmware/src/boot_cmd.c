@@ -46,7 +46,7 @@ LOG_MODULE_REGISTER(wr_boot, LOG_LEVEL_INF);
 #define STORAGE_MOUNT_POINT "/SD:"
 #define STORAGE_MAX_FILENAME 63
 #define STORAGE_MAX_PATH 80
-#define WIRED_CHUNK_BYTES 4096
+#define WIRED_CHUNK_BYTES 1024
 
 static char rx_buf[BOOT_RX_BUF_LEN];
 static size_t rx_idx;
@@ -63,16 +63,8 @@ static void uart_send(const uint8_t *data, size_t len)
 	if (console_uart == NULL) {
 		return;
 	}
-	size_t offset = 0;
-	while (offset < len) {
-		const int n = uart_fifo_fill(console_uart, &data[offset],
-					     len - offset);
-		if (n > 0) {
-			offset += (size_t)n;
-			continue;
-		}
-		uart_poll_out(console_uart, data[offset]);
-		offset++;
+	for (size_t i = 0; i < len; i++) {
+		uart_poll_out(console_uart, data[i]);
 	}
 }
 
