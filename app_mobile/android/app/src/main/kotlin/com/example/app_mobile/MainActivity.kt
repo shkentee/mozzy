@@ -806,7 +806,7 @@ private class CdcSession(
     private var dataInterface: UsbInterface? = null
     private var inEndpoint: UsbEndpoint? = null
     private var outEndpoint: UsbEndpoint? = null
-    private val readBuffer = ByteArray(16 * 1024)
+    private val readBuffer = ByteArray(64 * 1024)
     private var readPos = 0
     private var readLen = 0
     private var lineControlIndex = -1

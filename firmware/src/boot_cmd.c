@@ -49,7 +49,7 @@ LOG_MODULE_REGISTER(wr_boot, LOG_LEVEL_INF);
 #define STORAGE_MOUNT_POINT "/SD:"
 #define STORAGE_MAX_FILENAME 63
 #define STORAGE_MAX_PATH 80
-#define WIRED_CHUNK_BYTES 4096
+#define WIRED_CHUNK_BYTES 16384
 
 static char rx_buf[BOOT_RX_BUF_LEN];
 static size_t rx_idx;
