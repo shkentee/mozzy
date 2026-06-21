@@ -9,7 +9,7 @@
  *   wr-pause
  *   wr-resume
  *   wr-list
- *   wr-fetch <basename.opus_sd>
+ *   wr-fetch <basename.opus_sd> [offset]
  *
  * The rescue protocol uses text control lines plus binary chunks with CRC32.
  * The same CDC port is also the Zephyr console, so WR-prefixed control lines
@@ -21,7 +21,9 @@
 #include <errno.h>
 #include <hal/nrf_power.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -178,12 +180,50 @@ static void handle_wired_list(void)
 	uart_sendf("WR-END %u\n", count);
 }
 
-static void handle_wired_fetch(const char *filename)
+static bool parse_fetch_args(const char *args, char *filename,
+			     size_t filename_size, uint32_t *offset)
+{
+	if (args == NULL || filename == NULL || offset == NULL) {
+		return false;
+	}
+
+	*offset = 0;
+	const char *space = strchr(args, ' ');
+	const size_t name_len = space == NULL ? strlen(args) : (size_t)(space - args);
+	if (name_len == 0 || name_len >= filename_size) {
+		return false;
+	}
+	memcpy(filename, args, name_len);
+	filename[name_len] = '\0';
+
+	if (space == NULL) {
+		return true;
+	}
+	while (*space == ' ') {
+		space++;
+	}
+	if (*space == '\0') {
+		return true;
+	}
+
+	char *end = NULL;
+	const unsigned long parsed = strtoul(space, &end, 10);
+	while (end != NULL && *end == ' ') {
+		end++;
+	}
+	if (end == NULL || *end != '\0' || parsed > UINT32_MAX) {
+		return false;
+	}
+	*offset = (uint32_t)parsed;
+	return true;
+}
+
+static void handle_wired_fetch(const char *filename, uint32_t offset)
 {
 	char path[STORAGE_MAX_PATH];
 	struct fs_file_t file;
 	struct fs_dirent entry;
-	uint32_t sent = 0;
+	uint32_t sent = offset;
 
 	int rc = build_path(path, sizeof(path), filename);
 	if (rc < 0) {
@@ -200,6 +240,10 @@ static void handle_wired_fetch(const char *filename)
 		uart_sendf("WR-ERR stat %d\n", rc);
 		return;
 	}
+	if (offset > entry.size) {
+		uart_sendf("WR-ERR offset %u %zu\n", offset, entry.size);
+		return;
+	}
 
 	fs_file_t_init(&file);
 	rc = fs_open(&file, path, FS_O_READ);
@@ -207,8 +251,17 @@ static void handle_wired_fetch(const char *filename)
 		uart_sendf("WR-ERR open %d\n", rc);
 		return;
 	}
+	if (offset > 0) {
+		rc = fs_seek(&file, offset, FS_SEEK_SET);
+		if (rc < 0) {
+			uart_sendf("WR-ERR seek %d\n", rc);
+			(void)fs_close(&file);
+			return;
+		}
+	}
 
-	uart_sendf("WR-FETCH-BEGIN %s %zu binary-crc32\n", filename, entry.size);
+	uart_sendf("WR-FETCH-BEGIN %s %zu binary-crc32 %u\n",
+		   filename, entry.size, offset);
 	for (;;) {
 		const ssize_t rd = fs_read(&file, wired_fetch_chunk,
 					   sizeof(wired_fetch_chunk));
@@ -267,7 +320,13 @@ static void handle_line(const char *line)
 	} else if (strcmp(line, "wr-list") == 0) {
 		handle_wired_list();
 	} else if (strncmp(line, "wr-fetch ", 9) == 0) {
-		handle_wired_fetch(&line[9]);
+		char filename[BOOT_RX_BUF_LEN];
+		uint32_t offset = 0;
+		if (!parse_fetch_args(&line[9], filename, sizeof(filename), &offset)) {
+			uart_send_str("WR-ERR bad-fetch-args\n");
+			return;
+		}
+		handle_wired_fetch(filename, offset);
 	}
 }
 
