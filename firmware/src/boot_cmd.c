@@ -65,8 +65,16 @@ static void uart_send(const uint8_t *data, size_t len)
 	if (console_uart == NULL) {
 		return;
 	}
-	for (size_t i = 0; i < len; i++) {
-		uart_poll_out(console_uart, data[i]);
+	size_t offset = 0;
+	while (offset < len) {
+		const int n = uart_fifo_fill(console_uart, &data[offset],
+					     len - offset);
+		if (n > 0) {
+			offset += (size_t)n;
+			continue;
+		}
+		uart_poll_out(console_uart, data[offset]);
+		offset++;
 	}
 }
 
