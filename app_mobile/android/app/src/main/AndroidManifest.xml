@@ -18,6 +18,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Android 14+: must declare the foreground service type -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Notifications (Android 13+ requires explicit permission) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -47,6 +48,12 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
         </activity>
 
         <!-- flutter_foreground_task service declaration -->
@@ -54,6 +61,15 @@
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="connectedDevice"
             android:exported="false" />
+
+        <service
+            android:name=".WiredUsbRescueService"
+            android:foregroundServiceType="connectedDevice"
+            android:exported="false" />
+
+        <receiver
+            android:name=".UsbPermissionReceiver"
+            android:exported="true" />
 
         <meta-data
             android:name="flutterEmbedding"

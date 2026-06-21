@@ -180,6 +180,17 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _prepareWiredUsbRescue() async {
+    await WrForegroundService.stopBackgroundSync();
+    await _sdSync?.dispose();
+    _sdSync = null;
+    try {
+      await widget.device.disconnect();
+    } catch (_) {}
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    await WrForegroundService.stop();
+  }
+
   Future<void> _init() async {
     await _loadSyncSettings();
     await _loadLedSettings();
@@ -517,7 +528,11 @@ class _DevicePageState extends State<DevicePage> with WidgetsBindingObserver {
           child: FilledButton.icon(
             onPressed: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const WiredRescuePage()),
+                MaterialPageRoute(
+                  builder: (_) => WiredRescuePage(
+                    prepareExclusiveUsb: _prepareWiredUsbRescue,
+                  ),
+                ),
               );
             },
             icon: const Icon(Icons.usb),

@@ -1,7 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/wr_foreground_service.dart';
-import '../services/wr_upload_outbox.dart';
 import '../services/wr_wired_usb.dart';
 
 typedef PrepareExclusiveUsb = Future<void> Function();
@@ -29,6 +30,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
   String _status = 'USB-Cでスマホとデバイスをつないでから確認してください';
   String? _usbDiagnostics;
   List<WrWiredFile> _files = const [];
+  Timer? _rescueStatusTimer;
 
   String _fmtMB(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
 
@@ -59,8 +61,39 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
 
   @override
   void dispose() {
+    _rescueStatusTimer?.cancel();
     _wired.setKeepScreenOn(false).ignore();
     super.dispose();
+  }
+
+  void _startRescueStatusPolling() {
+    _rescueStatusTimer?.cancel();
+    _pollRescueStatus();
+    _rescueStatusTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _pollRescueStatus(),
+    );
+  }
+
+  Future<void> _pollRescueStatus() async {
+    try {
+      final status = await _wired.getRescueStatus();
+      if (!mounted) return;
+      final progress = status.totalBytes <= 0
+          ? ''
+          : '（${_fmtMB(status.processedBytes)} / ${_fmtMB(status.totalBytes)}）';
+      setState(() {
+        _busy = status.running;
+        _status =
+            progress.isEmpty ? status.status : '${status.status} $progress';
+      });
+      if (!status.running) {
+        _rescueStatusTimer?.cancel();
+        _rescueStatusTimer = null;
+      }
+    } catch (_) {
+      // Status polling is best-effort; user-visible errors come from start/list.
+    }
   }
 
   Future<void> _refresh() async {
@@ -74,14 +107,16 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
       await _prepareExclusiveUsb();
       if (!mounted) return;
       setState(() => _status = 'USBデバイス確認中...');
-      final pong = await _wired.ping();
-      final files = await _wired.listFiles();
+      final pong = await _wired.ping().timeout(const Duration(seconds: 12));
+      final files = await _wired
+          .listRescueCandidates()
+          .timeout(const Duration(seconds: 25));
       if (!mounted) return;
       setState(() {
         _files = files;
         _status = files.isEmpty
-            ? '接続OK（$pong）。送信対象ファイルはありません'
-            : '接続OK（$pong）。${files.length}件見つかりました';
+            ? '接続OK（$pong）。未救出の録音はありません'
+            : '接続OK（$pong）。未救出 ${files.length}件見つかりました';
       });
     } catch (e) {
       if (!mounted) return;
@@ -101,6 +136,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
 
   Future<void> _queueAll() async {
     if (_busy) return;
+    var serviceStarted = false;
     setState(() {
       _busy = true;
       _status = 'バックグラウンド同期を停止中...';
@@ -108,31 +144,25 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     try {
       await _prepareExclusiveUsb();
       if (!mounted) return;
-      setState(() => _status = 'USB吸出しを開始します...');
-      final queued = await _wired.fetchAndQueueAll(
-        onProgress: (message) {
-          if (!mounted) return;
-          setState(() => _status = message);
-        },
-      );
-      final files = await _wired.listFiles();
-      if (!mounted) return;
+      await _wired
+          .startQueueAllInBackground()
+          .timeout(const Duration(seconds: 12));
+      serviceStarted = true;
       setState(() {
-        _files = files;
-        _status = queued == 0
-            ? 'USB吸出し完了: すべて送信待ちに登録済みです'
-            : 'USB吸出し完了: $queued件を送信待ちに入れました';
+        _status = 'USB救出をバックグラウンドで開始しました';
       });
+      _startRescueStatusPolling();
     } catch (e) {
       if (!mounted) return;
       setState(() => _status = 'USB救出エラー: $e');
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && !serviceStarted) setState(() => _busy = false);
     }
   }
 
   Future<void> _queueOne(WrWiredFile file) async {
     if (_busy) return;
+    var serviceStarted = false;
     setState(() {
       _busy = true;
       _status = 'バックグラウンド同期を停止中...';
@@ -140,33 +170,17 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
     try {
       await _prepareExclusiveUsb();
       if (!mounted) return;
-      setState(() => _status = '録音を一時停止中...');
-      await _wired.pauseRecording();
-      late String resultStatus;
-      try {
-        setState(() => _status = 'USB吸出し中: ${file.name}');
-        final local = await _wired.fetchToTemp(file);
-        final queued = await const WrUploadOutbox().enqueue(
-          local,
-          file.name,
-          deleteSource: true,
-        );
-        if (!mounted) return;
-        resultStatus = queued.alreadyQueued
-            ? '送信待ちに登録済み: ${queued.name}'
-            : '送信待ちへ追加: ${queued.name}';
-      } finally {
-        if (mounted) setState(() => _status = '録音を再開中...');
-        await _wired.resumeRecording();
-      }
-      if (mounted) {
-        setState(() => _status = resultStatus);
-      }
+      await _wired
+          .startQueueOneInBackground(file.name)
+          .timeout(const Duration(seconds: 12));
+      serviceStarted = true;
+      setState(() => _status = 'USB救出をバックグラウンドで開始しました: ${file.name}');
+      _startRescueStatusPolling();
     } catch (e) {
       if (!mounted) return;
       setState(() => _status = 'USB救出エラー: $e');
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && !serviceStarted) setState(() => _busy = false);
     }
   }
 
@@ -215,7 +229,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
             const SizedBox(height: 16),
           ],
           Text(
-            '見つかった録音をスマホへ吸い出し、既存のDrive送信待ちキューに入れます。自動アップロードがONなら通常処理が順番に送信します。',
+            '未救出の録音だけをスマホへ吸い出し、既存のDrive送信待ちキューに入れます。自動アップロードがONなら通常処理が順番に送信します。',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
@@ -223,8 +237,8 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
             onPressed: _busy || _files.isEmpty ? null : _queueAll,
             icon: const Icon(Icons.cloud_upload_outlined),
             label: Text(_files.isEmpty
-                ? 'スマホへ吸出して送信待ちに入れる'
-                : 'スマホへ吸出して送信待ちに入れる（${_files.length}件 / ${_fmtMB(totalBytes)}）'),
+                ? '未救出だけ吸出して送信待ちに入れる'
+                : '未救出だけ吸出して送信待ちに入れる（${_files.length}件 / ${_fmtMB(totalBytes)}）'),
           ),
           const SizedBox(height: 16),
           if (_files.isEmpty)

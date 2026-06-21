@@ -223,6 +223,59 @@ static void apply_sync_rename(void)
 	LOG_INF("time sync received; keeping active file open as %s", record_path);
 }
 
+static bool current_file_start_epoch(uint64_t *out)
+{
+	if (!time_synced || out == NULL) {
+		return false;
+	}
+
+	const int64_t delta_ms = sync_uptime_ms - file_open_uptime_ms;
+	if (delta_ms >= 0) {
+		const uint64_t delta_secs = (uint64_t)(delta_ms / 1000);
+		*out = sync_epoch_secs > delta_secs ? sync_epoch_secs - delta_secs : 0;
+	} else {
+		*out = sync_epoch_secs + (uint64_t)((-delta_ms) / 1000);
+	}
+	return *out > 0;
+}
+
+static void rename_closed_file_to_epoch(void)
+{
+	if (file_is_epoch_named || !time_synced) {
+		return;
+	}
+
+	uint64_t start_epoch;
+	if (!current_file_start_epoch(&start_epoch)) {
+		return;
+	}
+
+	char new_path[sizeof(record_path)];
+	(void)snprintf(new_path, sizeof(new_path), RECORD_DIR "/%010llu.opus_sd",
+		       (unsigned long long)start_epoch);
+	if (strcmp(new_path, record_path) == 0) {
+		file_is_epoch_named = true;
+		return;
+	}
+
+	struct fs_dirent existing;
+	const int stat_rc = fs_stat(new_path, &existing);
+	if (stat_rc == 0) {
+		LOG_WRN("epoch rename target already exists: %s", new_path);
+		return;
+	}
+
+	const int rc = fs_rename(record_path, new_path);
+	if (rc < 0) {
+		LOG_WRN("epoch rename failed %s -> %s: %d", record_path, new_path, rc);
+		return;
+	}
+
+	LOG_INF("recording renamed by start time: %s -> %s", record_path, new_path);
+	(void)snprintf(record_path, sizeof(record_path), "%s", new_path);
+	file_is_epoch_named = true;
+}
+
 /* Open a fresh recording file and reset per-file state. Shared by start,
  * resume, and rotation so the open/reset sequence stays consistent. Must run
  * on the recorder thread (or before it starts), keeping FS access single-
@@ -278,6 +331,8 @@ static void apply_pause_resume(void)
 
 		if (rc < 0) {
 			LOG_WRN("pause: fs_close returned %d", rc);
+		} else {
+			rename_closed_file_to_epoch();
 		}
 		atomic_set(&recording_active, 0);
 		LOG_INF("recording paused");

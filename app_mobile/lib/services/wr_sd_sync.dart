@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -307,11 +308,42 @@ class WrSdSync {
     return '${now - chunkSeconds}.opus_sd';
   }
 
+  Future<void> _writeTimelineSidecar(
+    File audioFile,
+    String audioName,
+    int recordingStartEpoch, {
+    required String source,
+  }) async {
+    final sidecar = File('${audioFile.path}.meta.json');
+    final payload = <String, Object?>{
+      'schema': 'mozzy.timeline.v1',
+      'audio_file': audioName,
+      'recording_start_epoch': recordingStartEpoch,
+      'recording_start_source': source,
+      'chunk_seconds': chunkSeconds,
+      'created_at_epoch': DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000,
+    };
+    await sidecar.writeAsString(jsonEncode(payload), flush: true);
+  }
+
   Future<void> _emitChunk(Uint8List bytes) async {
     final name = _chunkName(_chunkIndex);
     final dir = await _outboxDir();
     final f = File('${dir.path}/$name');
     await f.writeAsBytes(bytes, flush: true);
+    final startEpoch = _sessionStartEpoch != null
+        ? _sessionStartEpoch! + _chunkIndex * chunkSeconds
+        : _epochFromName(name);
+    if (startEpoch != null) {
+      await _writeTimelineSidecar(
+        f,
+        name,
+        startEpoch,
+        source: _sessionStartEpoch != null
+            ? 'device_epoch_filename'
+            : 'phone_estimated_chunk',
+      );
+    }
     _chunkIndex++;
     if (!_events.isClosed) _events.add('queued $name (${bytes.length}B)');
     await _emitUploadStatus();

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -14,6 +15,46 @@ class WrWiredFile {
 
   final String name;
   final int sizeBytes;
+}
+
+class WrWiredRescueStatus {
+  const WrWiredRescueStatus({
+    required this.running,
+    required this.status,
+    required this.totalFiles,
+    required this.queuedFiles,
+    required this.totalBytes,
+    required this.processedBytes,
+    this.currentFile,
+    this.lastError,
+  });
+
+  final bool running;
+  final String status;
+  final int totalFiles;
+  final int queuedFiles;
+  final int totalBytes;
+  final int processedBytes;
+  final String? currentFile;
+  final String? lastError;
+
+  factory WrWiredRescueStatus.fromMap(Map<dynamic, dynamic> map) {
+    int asInt(Object? value) {
+      if (value is int) return value;
+      return int.tryParse('$value') ?? 0;
+    }
+
+    return WrWiredRescueStatus(
+      running: map['running'] == true,
+      status: (map['status'] ?? '').toString(),
+      totalFiles: asInt(map['totalFiles']),
+      queuedFiles: asInt(map['queuedFiles']),
+      totalBytes: asInt(map['totalBytes']),
+      processedBytes: asInt(map['processedBytes']),
+      currentFile: map['currentFile']?.toString(),
+      lastError: map['lastError']?.toString(),
+    );
+  }
 }
 
 class WrWiredUsb {
@@ -48,8 +89,35 @@ class WrWiredUsb {
     });
   }
 
+  Future<void> startQueueAllInBackground() async {
+    await _channel.invokeMethod<bool>('startQueueAll');
+  }
+
+  Future<void> startQueueOneInBackground(String name) async {
+    await _channel.invokeMethod<bool>('startQueueOne', {
+      'name': name,
+    });
+  }
+
+  Future<WrWiredRescueStatus> getRescueStatus() async {
+    final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'getRescueStatus',
+    );
+    return WrWiredRescueStatus.fromMap(raw ?? const <dynamic, dynamic>{});
+  }
+
   Future<List<WrWiredFile>> listFiles() async {
     final raw = await _channel.invokeMethod<List<dynamic>>('listFiles');
+    return _parseFileList(raw);
+  }
+
+  Future<List<WrWiredFile>> listRescueCandidates() async {
+    final raw =
+        await _channel.invokeMethod<List<dynamic>>('listRescueCandidates');
+    return _parseFileList(raw);
+  }
+
+  List<WrWiredFile> _parseFileList(List<dynamic>? raw) {
     return (raw ?? const <dynamic>[])
         .whereType<Map<dynamic, dynamic>>()
         .map((m) {
@@ -78,6 +146,31 @@ class WrWiredUsb {
           'USB fetch size mismatch: expected ${file.sizeBytes}, got $nativeLength');
     }
     return out;
+  }
+
+  int? _epochFromName(String name) {
+    final match = RegExp(r'^(\d{10})\.opus_sd$').firstMatch(name);
+    return match == null ? null : int.tryParse(match.group(1)!);
+  }
+
+  Future<void> _writeTimelineSidecar(
+    File audioFile,
+    String audioName, {
+    required String originalName,
+    required String source,
+  }) async {
+    final epoch = _epochFromName(audioName) ?? _epochFromName(originalName);
+    if (epoch == null) return;
+    final payload = <String, Object?>{
+      'schema': 'mozzy.timeline.v1',
+      'audio_file': audioName,
+      'original_file': originalName,
+      'recording_start_epoch': epoch,
+      'recording_start_source': source,
+      'created_at_epoch': DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000,
+    };
+    await File('${audioFile.path}.meta.json')
+        .writeAsString(jsonEncode(payload), flush: true);
   }
 
   Future<int> fetchAndUploadAll({
@@ -135,6 +228,12 @@ class WrWiredUsb {
           local,
           file.name,
           deleteSource: true,
+        );
+        await _writeTimelineSidecar(
+          item.file,
+          item.name,
+          originalName: file.name,
+          source: 'usb_epoch_filename',
         );
         if (!item.alreadyQueued) queued++;
         onProgress?.call(item.alreadyQueued

@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:mojio/pages/wired_rescue_page.dart';
 import 'package:mojio/services/wr_drive_uploader.dart';
-import 'package:mojio/services/wr_upload_outbox.dart';
 import 'package:mojio/services/wr_wired_usb.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -31,6 +30,7 @@ class _FakeWiredUsb extends WrWiredUsb {
       : super(channel: const MethodChannel('unused/wired_usb'));
 
   final List<String> calls;
+  int statusReads = 0;
 
   @override
   Future<String> ping() async {
@@ -45,19 +45,35 @@ class _FakeWiredUsb extends WrWiredUsb {
   }
 
   @override
+  Future<List<WrWiredFile>> listRescueCandidates() async {
+    calls.add('listRescueCandidates');
+    return const [WrWiredFile(name: 'rec_0003.opus_sd', sizeBytes: 2)];
+  }
+
+  @override
   Future<void> setKeepScreenOn(bool enabled) async {
     calls.add(enabled ? 'keepScreenOn' : 'keepScreenOff');
   }
 
   @override
-  Future<int> fetchAndQueueAll({
-    WrUploadOutbox outbox = const WrUploadOutbox(),
-    void Function(String message)? onProgress,
-  }) async {
+  Future<void> startQueueAllInBackground() async {
     calls.add('queueAll');
-    onProgress?.call('送信待ちへ追加: rec_0003.opus_sd');
-    await Future<void>.delayed(const Duration(seconds: 1));
-    return 1;
+  }
+
+  @override
+  Future<WrWiredRescueStatus> getRescueStatus() async {
+    calls.add('getRescueStatus');
+    statusReads++;
+    return WrWiredRescueStatus(
+      running: statusReads == 1,
+      status: statusReads == 1
+          ? 'USB吸出し中: rec_0003.opus_sd'
+          : 'USB救出完了: 1件を送信待ちに入れました',
+      totalFiles: 1,
+      queuedFiles: statusReads == 1 ? 0 : 1,
+      totalBytes: 2,
+      processedBytes: statusReads == 1 ? 0 : 2,
+    );
   }
 }
 
@@ -95,6 +111,22 @@ void main() {
     expect(files.map((f) => f.sizeBytes), [1200366, 42]);
   });
 
+  test('listRescueCandidates parses native USB file maps', () async {
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      expect(call.method, 'listRescueCandidates');
+      return [
+        {'name': 'rec_0008.opus_sd', 'size': 647232},
+      ];
+    });
+
+    final wired = WrWiredUsb(channel: channel);
+    final files = await wired.listRescueCandidates();
+
+    expect(files.map((f) => f.name), ['rec_0008.opus_sd']);
+    expect(files.single.sizeBytes, 647232);
+  });
+
   test('ping returns native response', () async {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
         (call) async {
@@ -114,7 +146,7 @@ void main() {
       calls.add(call.method);
       return switch (call.method) {
         'ping' => 'mozzy',
-        'listFiles' => [
+        'listRescueCandidates' => [
             {'name': 'rec_0001.opus_sd', 'size': 42},
           ],
         _ => null,
@@ -131,8 +163,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(calls, ['setKeepScreenOn', 'prepareUsb', 'ping', 'listFiles']);
-    expect(find.text('接続OK（mozzy）。1件見つかりました'), findsOneWidget);
+    expect(calls,
+        ['setKeepScreenOn', 'prepareUsb', 'ping', 'listRescueCandidates']);
+    expect(find.text('接続OK（mozzy）。未救出 1件見つかりました'), findsOneWidget);
     expect(find.text('rec_0001.opus_sd'), findsOneWidget);
   });
 
@@ -289,18 +322,21 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.textContaining('スマホへ吸出して送信待ちに入れる（1件'));
+    await tester.tap(find.textContaining('未救出だけ吸出して送信待ちに入れる（1件'));
     await tester.pump();
-    await tester.tap(find.textContaining('スマホへ吸出して送信待ちに入れる（1件'),
+    await tester.tap(find.textContaining('未救出だけ吸出して送信待ちに入れる（1件'),
         warnIfMissed: false);
     await tester.pump();
 
     expect(calls.where((c) => c == 'queueAll'), hasLength(1));
 
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 3));
     await tester.pump();
 
-    expect(find.text('USB吸出し完了: 1件を送信待ちに入れました'), findsOneWidget);
+    expect(
+      find.text('USB救出完了: 1件を送信待ちに入れました （0.0MB / 0.0MB）'),
+      findsOneWidget,
+    );
     expect(calls.where((c) => c == 'queueAll'), hasLength(1));
   });
 }
