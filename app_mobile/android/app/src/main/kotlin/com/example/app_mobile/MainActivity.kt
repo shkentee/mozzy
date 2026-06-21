@@ -806,7 +806,7 @@ private class CdcSession(
     private var dataInterface: UsbInterface? = null
     private var inEndpoint: UsbEndpoint? = null
     private var outEndpoint: UsbEndpoint? = null
-    private val readBuffer = ByteArray(64 * 1024)
+    private val readBuffer = ByteArray(16 * 1024)
     private var readPos = 0
     private var readLen = 0
     private var lineControlIndex = -1
@@ -993,6 +993,11 @@ private class CdcSession(
                         val crc = CRC32()
                         crc.update(bytes)
                         if (crc.value != reported.crc32) {
+                            Log.w(
+                                WIRED_RESCUE_TAG,
+                                "USB stream CRC mismatch offset=${chunk.offset} length=${chunk.length} " +
+                                    "reported=${reported.crc32.toString(16)} actual=${crc.value.toString(16)}"
+                            )
                             discardFetchRemainder()
                             throw WiredUsbException(
                                 "wired_crc_mismatch",
