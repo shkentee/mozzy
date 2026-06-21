@@ -133,6 +133,9 @@ jobs:
             ${{ env.BUILD_DIR }}/zephyr/zephyr.hex
             ${{ env.BUILD_DIR }}/zephyr/zephyr.elf
             ${{ env.BUILD_DIR }}/zephyr/zephyr.map
+            ${{ env.BUILD_DIR }}/zephyr/zephyr.dts
+            ${{ env.BUILD_DIR }}/zephyr/.config
+            ${{ env.BUILD_DIR }}/zephyr/include/generated/zephyr/devicetree_generated.h
             ${{ env.BUILD_DIR }}/firmware.uf2
           if-no-files-found: error
           retention-days: 30
