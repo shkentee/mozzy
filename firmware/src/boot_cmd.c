@@ -58,8 +58,14 @@ static bool boot_cmd_thread_started;
 static uint8_t wired_fetch_chunk[WIRED_CHUNK_BYTES];
 static volatile bool wired_fetch_cancel_requested;
 static bool wired_fetch_dtr_seen;
+static const uint8_t *wired_tx_data;
+static size_t wired_tx_len;
+static size_t wired_tx_offset;
+static bool wired_tx_irq_usable = true;
 
 K_MSGQ_DEFINE(boot_cmd_queue, BOOT_RX_BUF_LEN, BOOT_CMD_QUEUE_DEPTH, 4);
+K_SEM_DEFINE(wired_tx_done, 0, 1);
+K_MUTEX_DEFINE(wired_tx_lock);
 static K_THREAD_STACK_DEFINE(boot_cmd_stack, BOOT_CMD_STACK_SIZE);
 static struct k_thread boot_cmd_thread;
 
@@ -68,9 +74,34 @@ static void uart_send(const uint8_t *data, size_t len)
 	if (console_uart == NULL) {
 		return;
 	}
-	for (size_t i = 0; i < len; i++) {
-		uart_poll_out(console_uart, data[i]);
+	if (len == 0U) {
+		return;
 	}
+	if (!wired_tx_irq_usable) {
+		for (size_t i = 0; i < len; i++) {
+			uart_poll_out(console_uart, data[i]);
+		}
+		return;
+	}
+
+	k_mutex_lock(&wired_tx_lock, K_FOREVER);
+	k_sem_reset(&wired_tx_done);
+	wired_tx_data = data;
+	wired_tx_len = len;
+	wired_tx_offset = 0U;
+	uart_irq_tx_enable(console_uart);
+	if (k_sem_take(&wired_tx_done, K_SECONDS(2)) != 0) {
+		uart_irq_tx_disable(console_uart);
+		wired_tx_irq_usable = false;
+		while (wired_tx_offset < wired_tx_len) {
+			uart_poll_out(console_uart, wired_tx_data[wired_tx_offset]);
+			wired_tx_offset++;
+		}
+		wired_tx_data = NULL;
+		wired_tx_len = 0U;
+		wired_tx_offset = 0U;
+	}
+	k_mutex_unlock(&wired_tx_lock);
 }
 
 static void uart_send_str(const char *s)
@@ -417,6 +448,26 @@ static void boot_cmd_uart_cb(const struct device *dev, void *user_data)
 
 	if (!uart_irq_update(dev)) {
 		return;
+	}
+
+	if (uart_irq_tx_ready(dev) && wired_tx_data != NULL) {
+		while (wired_tx_offset < wired_tx_len) {
+			const int n = uart_fifo_fill(
+				dev,
+				&wired_tx_data[wired_tx_offset],
+				wired_tx_len - wired_tx_offset);
+			if (n <= 0) {
+				break;
+			}
+			wired_tx_offset += (size_t)n;
+		}
+		if (wired_tx_offset >= wired_tx_len) {
+			uart_irq_tx_disable(dev);
+			wired_tx_data = NULL;
+			wired_tx_len = 0U;
+			wired_tx_offset = 0U;
+			k_sem_give(&wired_tx_done);
+		}
 	}
 
 	while (uart_irq_rx_ready(dev)) {
