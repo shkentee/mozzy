@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/wr_foreground_service.dart';
+import '../services/wr_upload_queue_drainer.dart';
 import '../services/wr_wired_usb.dart';
 
 typedef PrepareExclusiveUsb = Future<void> Function();
@@ -11,11 +12,14 @@ class WiredRescuePage extends StatefulWidget {
   const WiredRescuePage({
     super.key,
     WrWiredUsb? wired,
+    WrUploadQueueDrainer? uploadQueueDrainer,
     PrepareExclusiveUsb? prepareExclusiveUsb,
   })  : _wiredOverride = wired,
+        _uploadQueueDrainerOverride = uploadQueueDrainer,
         _prepareExclusiveUsbOverride = prepareExclusiveUsb;
 
   final WrWiredUsb? _wiredOverride;
+  final WrUploadQueueDrainer? _uploadQueueDrainerOverride;
   final PrepareExclusiveUsb? _prepareExclusiveUsbOverride;
 
   @override
@@ -24,8 +28,11 @@ class WiredRescuePage extends StatefulWidget {
 
 class _WiredRescuePageState extends State<WiredRescuePage> {
   WrWiredUsb get _wired => widget._wiredOverride ?? WrWiredUsb();
+  WrUploadQueueDrainer get _uploadQueueDrainer =>
+      widget._uploadQueueDrainerOverride ?? WrUploadQueueDrainer();
 
   bool _busy = false;
+  bool _drainingUploadQueue = false;
   bool _exclusiveUsbReady = false;
   String _status = 'USB-Cでスマホとデバイスをつないでから確認してください';
   String? _usbDiagnostics;
@@ -90,9 +97,66 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
       if (!status.running) {
         _rescueStatusTimer?.cancel();
         _rescueStatusTimer = null;
+        if (status.queuedFiles > 0 && status.lastError == null) {
+          await _drainUploadQueue();
+        }
       }
     } catch (_) {
       // Status polling is best-effort; user-visible errors come from start/list.
+    }
+  }
+
+  Future<void> _drainUploadQueue() async {
+    if (_drainingUploadQueue) return;
+    _drainingUploadQueue = true;
+    var refreshCandidates = false;
+    var sent = 0;
+    try {
+      final result = await _uploadQueueDrainer.drain(
+        onProgress: (message) {
+          if (!mounted) return;
+          setState(() => _status = message);
+        },
+      );
+      if (!mounted) return;
+      sent = result.uploadedFiles + result.alreadyUploadedFiles;
+      if (result.autoUploadDisabled) {
+        setState(() => _status =
+            'USB救出完了: ${result.remainingFiles}件が送信待ちです（Drive自動送信OFF）');
+      } else if (result.blockedNoWifi) {
+        setState(() =>
+            _status = 'USB救出完了: ${result.remainingFiles}件が送信待ちです（Wi-Fi待ち）');
+      } else if (result.lastError != null) {
+        setState(() => _status =
+            'Drive送信エラー: ${result.lastError}（残り${result.remainingFiles}件は次回再試行）');
+      } else if (sent > 0) {
+        refreshCandidates = result.remainingFiles == 0;
+        setState(() => _status = result.remainingFiles == 0
+            ? 'Drive送信完了: $sent件を送信しました'
+            : 'Drive送信: $sent件完了、残り${result.remainingFiles}件');
+      }
+    } finally {
+      _drainingUploadQueue = false;
+    }
+    if (refreshCandidates && mounted) {
+      await _refreshCandidatesAfterUpload(sent);
+    }
+  }
+
+  Future<void> _refreshCandidatesAfterUpload(int sent) async {
+    try {
+      final files = await _wired
+          .listRescueCandidates()
+          .timeout(const Duration(seconds: 25));
+      if (!mounted) return;
+      setState(() {
+        _files = files;
+        _status = files.isEmpty
+            ? 'Drive送信完了: $sent件を送信しました。未救出の録音はありません'
+            : 'Drive送信完了: $sent件を送信しました。未救出 ${files.length}件';
+      });
+    } catch (_) {
+      // The upload already finished; candidate refresh is only for UI freshness.
     }
   }
 
@@ -118,6 +182,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
             ? '接続OK（$pong）。未救出の録音はありません'
             : '接続OK（$pong）。未救出 ${files.length}件見つかりました';
       });
+      await _drainUploadQueue();
     } catch (e) {
       if (!mounted) return;
       var diagnostics = '';
@@ -213,7 +278,7 @@ class _WiredRescuePageState extends State<WiredRescuePage> {
             ),
           ],
           const SizedBox(height: 12),
-          if (_busy) const LinearProgressIndicator(),
+          if (_busy || _drainingUploadQueue) const LinearProgressIndicator(),
           const SizedBox(height: 16),
           if (_files.isEmpty || _usbDiagnostics != null) ...[
             Text(
