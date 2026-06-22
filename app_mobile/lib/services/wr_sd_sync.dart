@@ -19,6 +19,9 @@ const kWifiOnlyKey = 'wr_upload_wifi_only';
 /// SharedPreferences key: upload queued chunks to Drive automatically.
 const kDriveUploadAutoKey = 'wr_drive_upload_auto';
 
+/// SharedPreferences key used by [WrDriveUploader] for uploaded identifiers.
+const _kUploadedIdsKey = 'wr_uploaded_ids';
+
 /// Live state of the Drive upload queue (chunks fetched from the device but not
 /// yet uploaded to Google Drive), for the UI.
 class WrUploadStatus {
@@ -697,13 +700,19 @@ class WrSdSync {
     }
     final prefs = await SharedPreferences.getInstance();
     var totalPulled = 0;
-    files = files
-        .where((name) =>
-            name.endsWith('.opus_sd') &&
-            !name.startsWith('battlog') &&
-            !_failedFiles.contains(name) &&
-            !(prefs.getBool('wr_sync_done_$name') ?? false))
-        .toList();
+    final candidates = <String>[];
+    for (final name in files) {
+      if (!name.endsWith('.opus_sd') ||
+          name.startsWith('battlog') ||
+          _failedFiles.contains(name)) {
+        continue;
+      }
+      if (await _isClosedFileAlreadyHandled(prefs, name)) {
+        continue;
+      }
+      candidates.add(name);
+    }
+    files = candidates;
     files.sort((a, b) {
       final ae = _epochFromName(a) ?? -1;
       final be = _epochFromName(b) ?? -1;
@@ -718,6 +727,43 @@ class WrSdSync {
       if (pulled > 0) break;
     }
     return totalPulled;
+  }
+
+  Future<bool> _isClosedFileAlreadyHandled(
+    SharedPreferences prefs,
+    String name,
+  ) async {
+    if (prefs.getBool('wr_sync_done_$name') ?? false) {
+      await _deletePendingState(name);
+      return true;
+    }
+
+    final uploadedIds = prefs.getStringList(_kUploadedIdsKey) ?? const [];
+    if (uploadedIds.any((id) => id == name || id.startsWith('$name:'))) {
+      await prefs.setBool('wr_sync_done_$name', true);
+      await _deletePendingState(name);
+      return true;
+    }
+
+    try {
+      final outboxFile = File('${(await _outboxDir()).path}/$name');
+      if (await outboxFile.exists() && await outboxFile.length() > 0) {
+        await prefs.setBool('wr_sync_done_$name', true);
+        await _deletePendingState(name);
+        return true;
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  Future<void> _deletePendingState(String name) async {
+    try {
+      final pending = await _pendingFile(name);
+      if (await pending.exists()) {
+        await pending.delete();
+      }
+    } catch (_) {}
   }
 
   /// Drain one pass (<= [_maxBytesPerPass]) of a closed file, chunking +

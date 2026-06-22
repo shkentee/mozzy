@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:mojio/pages/wired_rescue_page.dart';
 import 'package:mojio/services/wr_drive_uploader.dart';
+import 'package:mojio/services/wr_upload_queue_drainer.dart';
 import 'package:mojio/services/wr_wired_usb.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -24,6 +25,27 @@ class _FakePathProvider extends PathProviderPlatform {
 }
 
 class _MockUploader extends Mock implements WrDriveUploader {}
+
+class _FakeUploadQueueDrainer extends WrUploadQueueDrainer {
+  _FakeUploadQueueDrainer()
+      : super(
+          uploader: _MockUploader(),
+        );
+
+  @override
+  Future<WrOutboxDrainResult> drain({
+    bool force = false,
+    void Function(String message)? onProgress,
+  }) async {
+    return const WrOutboxDrainResult(
+      uploadedFiles: 0,
+      alreadyUploadedFiles: 0,
+      uploadedBytes: 0,
+      remainingFiles: 0,
+      remainingBytes: 0,
+    );
+  }
+}
 
 class _FakeWiredUsb extends WrWiredUsb {
   _FakeWiredUsb(this.calls)
@@ -157,6 +179,7 @@ void main() {
       MaterialApp(
         home: WiredRescuePage(
           wired: WrWiredUsb(channel: channel),
+          uploadQueueDrainer: _FakeUploadQueueDrainer(),
           prepareExclusiveUsb: () async => calls.add('prepareUsb'),
         ),
       ),
@@ -316,6 +339,7 @@ void main() {
       MaterialApp(
         home: WiredRescuePage(
           wired: wired,
+          uploadQueueDrainer: _FakeUploadQueueDrainer(),
           prepareExclusiveUsb: () async => calls.add('prepareUsb'),
         ),
       ),
